@@ -253,10 +253,14 @@ class HomePage extends StatelessWidget {
       statCard('Sudah dibayar hari ini',rupiah(todayPaid),Icons.check_circle_outline,green),
     ])),
     sectionTitle('Prioritas penagihan',trailing:'Lihat jadwal',onTap:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const SchedulePage()))),
-    if (todayLoans.isEmpty && overdueLoans.isEmpty)
-      emptyState('Belum ada tagihan jatuh tempo atau terlambat.\nImport file Excel untuk memulai.')
-    else
-      ...(overdueLoans + todayLoans).take(6).map((l) => LoanTile(loan: l)),
+    ...((todayLoans.isEmpty && overdueLoans.isEmpty)
+        ? <Widget>[
+            emptyState('Belum ada tagihan jatuh tempo atau terlambat.\nImport file Excel untuk memulai.'),
+          ]
+        : (overdueLoans + todayLoans)
+            .take(6)
+            .map<Widget>((loan) => LoanTile(loan: loan))
+            .toList()),
     const SizedBox(height:10)
   ]);
 }
