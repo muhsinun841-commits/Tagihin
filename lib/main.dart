@@ -193,6 +193,13 @@ class TagihinApp extends StatelessWidget {
     home: const BootPage());
 }
 
+// Alias kompatibilitas jika file test lama masih menggunakan MyApp.
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+  @override
+  Widget build(BuildContext context) => const TagihinApp();
+}
+
 class BootPage extends StatefulWidget { const BootPage({super.key}); @override State<BootPage> createState()=>_BootPageState(); }
 class _BootPageState extends State<BootPage> {
   @override void initState(){super.initState();store.load().then((_){if(mounted)setState((){});});}
@@ -246,7 +253,10 @@ class HomePage extends StatelessWidget {
       statCard('Sudah dibayar hari ini',rupiah(todayPaid),Icons.check_circle_outline,green),
     ])),
     sectionTitle('Prioritas penagihan',trailing:'Lihat jadwal',onTap:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>const SchedulePage()))),
-    if(todayLoans.isEmpty && overdueLoans.isEmpty) emptyState('Belum ada tagihan jatuh tempo atau terlambat.\nImport file Excel untuk memulai.') else ...(overdueLoans+todayLoans).take(6).map((l)=>LoanTile(loan:l)),
+    if (todayLoans.isEmpty && overdueLoans.isEmpty)
+      emptyState('Belum ada tagihan jatuh tempo atau terlambat.\nImport file Excel untuk memulai.')
+    else
+      ...(overdueLoans + todayLoans).take(6).map((l) => LoanTile(loan: l)),
     const SizedBox(height:10)
   ]);
 }
@@ -257,20 +267,62 @@ class LoanTile extends StatelessWidget {
     return Card(margin:const EdgeInsets.symmetric(horizontal:16,vertical:5),child:ListTile(onTap:()=>showLoanDetail(context,loan),leading:CircleAvatar(backgroundColor:late?orange.withValues(alpha:.15):blue.withValues(alpha:.1),child:Icon(late?Icons.warning_amber:Icons.person_outline,color:late?orange:blue)),title:Text(m?.name??'Anggota',style:const TextStyle(fontWeight:FontWeight.w700)),subtitle:Text('${loan.product} • Jatuh tempo ${tanggal(loan.dueDate)}\\nSisa ${rupiah(loan.remaining)}'),isThreeLine:true,trailing:const Icon(Icons.chevron_right)));}
 }
 
-class SchedulePage extends StatefulWidget {const SchedulePage({super.key});@override State<SchedulePage> createState()=>_SchedulePageState();}
-class _SchedulePageState extends State<SchedulePage>{
- int filter=0;
- @override Widget build(BuildContext context){
-   final now=DateTime.now();
-   final list=openLoans.where((l){
-     if(filter==0)return DateUtils.isSameDay(l.dueDate,now);
-     if(filter==1)return l.dueDate.isAfter(DateTime(now.year,now.month,now.day))&&!l.dueDate.isAfter(now.add(const Duration(days:7)));
-     if(filter==2)return l.dueDate.isBefore(DateTime(now.year,now.month,now.day));
-     return true;
-   }).toList()..sort((a,b)=>a.dueDate.compareTo(b.dueDate));
-   return Column(children:[Padding(padding:const EdgeInsets.fromLTRB(16,10,16,4),child:SingleChildScrollView(scrollDirection:Axis.horizontal,child:Row(children:[ 'Hari ini','7 hari ke depan','Terlambat','Semua'].asMap().entries.map((e)=>Padding(padding:const EdgeInsets.only(right:8),child:ChoiceChip(label:Text(e.value),selected:filter==e.key,onSelected:(_)=>setState(()=>filter=e.key))).toList()))),
-     Expanded(child:list.isEmpty?emptyState('Tidak ada tagihan pada filter ini.'):ListView(children:list.map((l)=>LoanTile(loan:l)).toList()))]);
- }
+class SchedulePage extends StatefulWidget {
+  const SchedulePage({super.key});
+  @override
+  State<SchedulePage> createState() => _SchedulePageState();
+}
+
+class _SchedulePageState extends State<SchedulePage> {
+  int filter = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final filters = ['Hari ini', '7 hari ke depan', 'Terlambat', 'Semua'];
+    final list = openLoans.where((loan) {
+      if (filter == 0) return DateUtils.isSameDay(loan.dueDate, now);
+      if (filter == 1) {
+        final due = DateTime(loan.dueDate.year, loan.dueDate.month, loan.dueDate.day);
+        return !due.isBefore(today) && !due.isAfter(today.add(const Duration(days: 7)));
+      }
+      if (filter == 2) {
+        final due = DateTime(loan.dueDate.year, loan.dueDate.month, loan.dueDate.day);
+        return due.isBefore(today);
+      }
+      return true;
+    }).toList()..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: filters.asMap().entries.map((entry) => Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text(entry.value),
+                  selected: filter == entry.key,
+                  onSelected: (_) => setState(() => filter = entry.key),
+                ),
+              )).toList(),
+            ),
+          ),
+        ),
+        Expanded(
+          child: list.isEmpty
+              ? emptyState('Tidak ada tagihan pada filter ini.')
+              : ListView.builder(
+                  itemCount: list.length,
+                  itemBuilder: (context, index) => LoanTile(loan: list[index]),
+                ),
+        ),
+      ],
+    );
+  }
 }
 
 class MembersPage extends StatefulWidget {const MembersPage({super.key});@override State<MembersPage> createState()=>_MembersPageState();}
