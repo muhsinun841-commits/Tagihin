@@ -128,7 +128,7 @@ class Store extends ChangeNotifier {
   Future<void> importExcel(Uint8List bytes, String period) async {
     final book = Excel.decodeBytes(bytes);
     if (book.tables.isEmpty) throw Exception('File Excel tidak memiliki sheet.');
-    final sheet = book.tables.values.first!;
+    final sheet = book.tables.values.first;
     if (sheet.rows.length < 2) throw Exception('Data Excel kosong.');
     final headers = sheet.rows.first.map((c)=>(c?.value?.toString() ?? '').toLowerCase().trim()).toList();
     int find(List<String> keys) => headers.indexWhere((h)=>keys.any((k)=>h.contains(k)));
@@ -143,13 +143,13 @@ class Store extends ChangeNotifier {
     final iMarketing=find(['marketing','petugas']);
     if(iName<0 || iDue<0 || iAmount<0) throw Exception('Kolom wajib belum ditemukan. Minimal perlu Nama, Jatuh Tempo, dan Tagihan. Periksa judul kolom Excel.');
     String val(List<Data?> row, int i) => i<0 || i>=row.length ? '' : (row[i]?.value?.toString().trim() ?? '');
-    int imported=0, skipped=0;
+    int imported=0;
     for (var r=1; r<sheet.rows.length; r++) {
       final row=sheet.rows[r];
       final name=val(row,iName);
-      if(name.isEmpty) { skipped++; continue; }
+      if(name.isEmpty) continue;
       final due=parseDate(iDue<row.length ? row[iDue]?.value : null);
-      if(due==null) { skipped++; continue; }
+      if(due==null) continue;
       final rawMemberId=val(row,iMemberId);
       final memberId=rawMemberId.isNotEmpty ? rawMemberId : 'M-${name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '')}-${val(row,iPhone).replaceAll(RegExp(r'[^0-9]'), '')}';
       var m=member(memberId);
@@ -162,7 +162,7 @@ class Store extends ChangeNotifier {
       }
       final loanIdRaw=val(row,iLoanId);
       final product=val(row,iProduct).isEmpty?'Angsuran':val(row,iProduct);
-      final loanId=loanIdRaw.isNotEmpty ? '$loanIdRaw-$period' : '${memberId}-${product.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '')}-${DateFormat('yyyyMMdd').format(due)}-$period';
+      final loanId=loanIdRaw.isNotEmpty ? '$loanIdRaw-$period' : '$memberId-${product.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '')}-${DateFormat('yyyyMMdd').format(due)}-$period';
       final existing=loans.indexWhere((l)=>l.id==loanId);
       final amount=parseMoney(iAmount<row.length?row[iAmount]?.value:null);
       if(existing>=0) {
@@ -211,7 +211,7 @@ class _MainPageState extends State<MainPage> {
   int index=0;
   final titles=['Beranda','Jadwal','Anggota','Penagihan','Laporan'];
   @override Widget build(BuildContext context) {
-    final pages=[HomePage(onImport:importFile), SchedulePage(), MembersPage(), CollectionPage(), ReportPage()];
+    final pages=[HomePage(onImport:importFile), const SchedulePage(), const MembersPage(), const CollectionPage(), const ReportPage()];
     return Scaffold(appBar:AppBar(title:Row(children:[Container(width:38,height:38,decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(12)),child:const Icon(Icons.fact_check_rounded,color:Colors.white)),const SizedBox(width:10),Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('TAGIHIN',style:TextStyle(fontWeight:FontWeight.w900,letterSpacing:1.1)),Text(titles[index],style:TextStyle(fontSize:12,color:Colors.blueGrey.shade600))])]),
       actions:[IconButton(tooltip:'Pengaturan',onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const SettingsPage())),icon:const Icon(Icons.settings_outlined))]),
       body:IndexedStack(index:index,children:pages),
@@ -221,6 +221,7 @@ class _MainPageState extends State<MainPage> {
   Future<void> importFile() async {
     final result=await FilePicker.platform.pickFiles(type:FileType.custom,allowedExtensions:['xlsx','xls'],withData:true);
     if(result==null||result.files.single.bytes==null)return;
+    if (!mounted) return;
     final now=DateTime.now(); final period=DateFormat('yyyy-MM').format(now);
     final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Impor tagihan bulanan'),content:Text('Data akan dicocokkan untuk periode $period. Tagihan periode lain dan riwayat pembayaran tidak dihapus. Lanjutkan?'),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Batal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Impor'))]));
     if(ok!=true)return;
@@ -432,7 +433,7 @@ Future<void> showCollectionForm(BuildContext context,Loan l) async {
  final m=getMember(l.memberId); if(m==null)return;
  String result='Berhasil membayar'; final paid=TextEditingController(); final note=TextEditingController();
  final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,setD)=>AlertDialog(title:Text('Catat penagihan • ${m.name}'),content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
-   DropdownButtonFormField<String>(value:result,decoration:const InputDecoration(labelText:'Hasil penagihan'),items:const ['Berhasil membayar','Pembayaran sebagian','Janji membayar','Belum bisa ditemui','Tidak ada pembayaran','Lainnya'].map((s)=>DropdownMenuItem(value:s,child:Text(s))).toList(),onChanged:(v)=>setD(()=>result=v??result)),
+   DropdownButtonFormField<String>(initialValue:result,decoration:const InputDecoration(labelText:'Hasil penagihan'),items:const ['Berhasil membayar','Pembayaran sebagian','Janji membayar','Belum bisa ditemui','Tidak ada pembayaran','Lainnya'].map((s)=>DropdownMenuItem(value:s,child:Text(s))).toList(),onChanged:(v)=>setD(()=>result=v??result)),
    const SizedBox(height:10),TextField(controller:paid,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:'Nominal diterima',helperText:'Sisa tagihan ${rupiah(l.remaining)}')),
    const SizedBox(height:10),TextField(controller:note,maxLines:2,decoration:const InputDecoration(labelText:'Catatan / janji bayar')),
  ])),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Batal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Simpan'))])));
