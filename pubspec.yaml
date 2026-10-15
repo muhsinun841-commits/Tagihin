@@ -1,0 +1,27 @@
+name: tagihin
+description: Aplikasi bantu penagihan marketing koperasi.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  shared_preferences: ^2.3.2
+  file_picker: ^8.1.2
+  excel: ^4.0.6
+  url_launcher: ^6.3.1
+  intl: ^0.19.0
+  path_provider: ^2.1.4
+  share_plus: ^10.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
