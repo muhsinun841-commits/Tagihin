@@ -34,13 +34,15 @@ jobs:
           channel: stable
           cache: true
 
-      # 4. Periksa lingkungan build
+      # 4. Periksa lingkungan
       - name: Check build environment
+        shell: bash
         run: |
+          set -e
           java -version
           flutter --version
 
-      # 5. Periksa proyek dan buat Android jika belum ada
+      # 5. Buat konfigurasi Android jika belum ada
       - name: Check project and generate Android
         shell: bash
         run: |
@@ -60,9 +62,9 @@ jobs:
             exit 1
           fi
 
-          echo "Proyek Android siap."
+          echo "Folder Android siap."
 
-      # 6. Pastikan logo tersedia
+      # 6. Periksa file logo
       - name: Check Tagihin logo
         shell: bash
         run: |
@@ -111,8 +113,42 @@ jobs:
           print("Nama aplikasi diatur menjadi Tagihin.")
           PY
 
-      # 8. Pasang generator ikon
-      - name: Configure Tagihin launcher icon
+      # 8. Siapkan gambar ikon
+      - name: Prepare Tagihin icon
+        shell: bash
+        run: |
+          set -e
+
+          python3 -m pip install --upgrade Pillow
+
+          python3 - <<'PY'
+          from PIL import Image
+          from pathlib import Path
+
+          source = Path("assets/icon/tagihin.png")
+
+          if not source.exists():
+              raise SystemExit("ERROR: Logo Tagihin tidak ditemukan.")
+
+          image = Image.open(source).convert("RGBA")
+
+          # Pertahankan seluruh logo di dalam gambar persegi.
+          image.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+
+          background = Image.new("RGBA", (1024, 1024), "white")
+
+          x = (1024 - image.width) // 2
+          y = (1024 - image.height) // 2
+
+          background.alpha_composite(image, (x, y))
+
+          background.convert("RGB").save(source, "PNG")
+
+          print("Logo berhasil disiapkan.")
+          PY
+
+      # 9. Buat ikon launcher Android
+      - name: Generate Tagihin launcher icon
         shell: bash
         run: |
           set -e
@@ -126,12 +162,15 @@ jobs:
             image_path: "assets/icon/tagihin.png"
             adaptive_icon_background: "#FFFFFF"
             adaptive_icon_foreground: "assets/icon/tagihin.png"
-            remove_alpha_ios: true
           EOF
 
           dart run flutter_launcher_icons
 
-      # 9. Install Android SDK 36
+          echo "===== IKON ANDROID ====="
+          find android/app/src/main/res \
+            -type f -name "*launcher*" -print
+
+      # 10. Pasang Android SDK 36
       - name: Install Android SDK 36
         shell: bash
         run: |
@@ -152,7 +191,7 @@ jobs:
             "platforms;android-36" \
             "build-tools;36.0.0"
 
-      # 10. Atur compileSdk aplikasi
+      # 11. Atur compileSdk aplikasi
       - name: Configure Android compileSdk
         shell: bash
         run: |
@@ -179,7 +218,7 @@ jobs:
 
           text = gradle.read_text()
 
-          replacements = [
+          patterns = [
               (
                   r"(?m)^(\s*)compileSdkVersion\s+\d+",
                   r"\1compileSdkVersion 36",
@@ -194,25 +233,26 @@ jobs:
               ),
           ]
 
-          for pattern, replacement in replacements:
+          for pattern, replacement in patterns:
               text = re.sub(pattern, replacement, text)
 
           gradle.write_text(text)
 
-          print("Konfigurasi compileSdk diperiksa.")
+          print(f"Konfigurasi diperiksa: {gradle}")
+
           for line in text.splitlines():
               if "compileSdk" in line:
                   print(line)
           PY
 
-      # 11. Ambil dependensi
+      # 12. Ambil dependensi Flutter
       - name: Get Flutter dependencies
         shell: bash
         run: |
           set -o pipefail
           flutter pub get 2>&1 | tee pub-get.log
 
-      # 12. Perbaiki compileSdk plugin file_picker
+      # 13. Perbaiki compileSdk file_picker
       - name: Fix file_picker compileSdk
         shell: bash
         run: |
@@ -238,10 +278,7 @@ jobs:
                   files.extend(android.glob("build.gradle.kts"))
 
           if not files:
-              print(
-                  "PERINGATAN: Gradle file_picker tidak ditemukan."
-              )
-              print("Build akan dilanjutkan untuk pemeriksaan berikutnya.")
+              print("PERINGATAN: File Gradle file_picker tidak ditemukan.")
               raise SystemExit(0)
 
           for file in files:
@@ -272,14 +309,34 @@ jobs:
               print(f"Diperiksa: {file}")
           PY
 
-      # 13. Analisis kode
+      # 14. Periksa ikon dan nama sebelum build
+      - name: Verify Tagihin branding
+        shell: bash
+        run: |
+          set -e
+
+          echo "===== NAMA APLIKASI ====="
+          grep -n 'android:label' \
+            android/app/src/main/AndroidManifest.xml || true
+
+          echo "===== IKON YANG TERSEDIA ====="
+          find android/app/src/main/res \
+            -type f -name "*launcher*" -print
+
+          if ! find android/app/src/main/res \
+            -type f -name "*launcher*" | grep -q .; then
+            echo "ERROR: File ikon launcher tidak ditemukan."
+            exit 1
+          fi
+
+      # 15. Analisis kode
       - name: Analyze Flutter source
         shell: bash
         run: |
           set -o pipefail
           flutter analyze 2>&1 | tee analyze.log
 
-      # 14. Build APK
+      # 16. Build APK release
       - name: Build release APK
         shell: bash
         run: |
@@ -287,7 +344,7 @@ jobs:
           flutter build apk --release --verbose \
             2>&1 | tee build-release.log
 
-      # 15. Verifikasi APK
+      # 17. Verifikasi APK
       - name: Verify APK
         if: success()
         shell: bash
@@ -306,7 +363,7 @@ jobs:
           ls -lh "$APK"
           sha256sum "$APK"
 
-      # 16. Upload APK
+      # 18. Upload APK
       - name: Upload TAGIHIN APK
         if: success()
         uses: actions/upload-artifact@v4
@@ -316,7 +373,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # 17. Tampilkan error jika gagal
+      # 19. Tampilkan error build
       - name: Show build failure details
         if: failure()
         shell: bash
@@ -339,7 +396,7 @@ jobs:
             fi
           done
 
-      # 18. Simpan log jika gagal
+      # 20. Simpan log jika gagal
       - name: Upload diagnostic logs
         if: failure()
         uses: actions/upload-artifact@v4
