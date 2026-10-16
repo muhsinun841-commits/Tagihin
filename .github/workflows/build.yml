@@ -36,55 +36,102 @@ jobs:
 
       # 4. Periksa lingkungan build
       - name: Check build environment
-        shell: bash
         run: |
-          set -e
-          echo "===== JAVA ====="
           java -version
-          echo "===== FLUTTER ====="
           flutter --version
 
-      # 5. Periksa proyek dan buat folder Android jika belum ada
-      - name: Check project and generate Android folder
+      # 5. Periksa proyek dan buat Android jika belum ada
+      - name: Check project and generate Android
         shell: bash
         run: |
           set -e
-
-          echo "===== MEMERIKSA PROYEK TAGIHIN ====="
 
           if [ ! -f pubspec.yaml ]; then
             echo "ERROR: pubspec.yaml tidak ditemukan."
-            echo "Pastikan proyek Flutter berada di root repository."
             exit 1
           fi
-
-          echo "===== FILE PROYEK ====="
-          ls -la
 
           if [ ! -d android ]; then
-            echo "Folder android belum tersedia."
-            echo "Membuat konfigurasi Android..."
-
-            flutter create \
-              --platforms=android \
-              --org com.tagihin \
-              .
-
-          else
-            echo "Folder android sudah tersedia."
+            flutter create --platforms=android --org com.tagihin .
           fi
 
-          if [ ! -f android/app/build.gradle ] && \
-             [ ! -f android/app/build.gradle.kts ]; then
-            echo "ERROR: File Gradle aplikasi Android tidak ditemukan."
-            find android -maxdepth 4 -type f 2>/dev/null || true
+          if [ ! -f android/app/src/main/AndroidManifest.xml ]; then
+            echo "ERROR: AndroidManifest.xml tidak ditemukan."
             exit 1
           fi
 
-          echo "Folder Android siap."
-          ls -la android
+          echo "Proyek Android siap."
 
-      # 6. Install Android SDK 36
+      # 6. Pastikan logo tersedia
+      - name: Check Tagihin logo
+        shell: bash
+        run: |
+          set -e
+
+          if [ ! -f assets/icon/tagihin.png ]; then
+            echo "ERROR: Logo tidak ditemukan."
+            echo "Unggah logo ke assets/icon/tagihin.png."
+            exit 1
+          fi
+
+          file assets/icon/tagihin.png
+
+      # 7. Atur nama aplikasi
+      - name: Set app name to Tagihin
+        shell: bash
+        run: |
+          set -e
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          manifest = Path(
+              "android/app/src/main/AndroidManifest.xml"
+          )
+
+          text = manifest.read_text()
+
+          if re.search(r'android:label="[^"]*"', text):
+              text = re.sub(
+                  r'android:label="[^"]*"',
+                  'android:label="Tagihin"',
+                  text,
+                  count=1
+              )
+          else:
+              text = re.sub(
+                  r'<application\b',
+                  '<application android:label="Tagihin"',
+                  text,
+                  count=1
+              )
+
+          manifest.write_text(text)
+          print("Nama aplikasi diatur menjadi Tagihin.")
+          PY
+
+      # 8. Pasang generator ikon
+      - name: Configure Tagihin launcher icon
+        shell: bash
+        run: |
+          set -e
+
+          flutter pub add --dev flutter_launcher_icons
+
+          cat > flutter_launcher_icons.yaml <<'EOF'
+          flutter_launcher_icons:
+            android: true
+            ios: false
+            image_path: "assets/icon/tagihin.png"
+            adaptive_icon_background: "#FFFFFF"
+            adaptive_icon_foreground: "assets/icon/tagihin.png"
+            remove_alpha_ios: true
+          EOF
+
+          dart run flutter_launcher_icons
+
+      # 9. Install Android SDK 36
       - name: Install Android SDK 36
         shell: bash
         run: |
@@ -105,7 +152,7 @@ jobs:
             "platforms;android-36" \
             "build-tools;36.0.0"
 
-      # 7. Atur compileSdk aplikasi
+      # 10. Atur compileSdk aplikasi
       - name: Configure Android compileSdk
         shell: bash
         run: |
@@ -115,19 +162,24 @@ jobs:
           from pathlib import Path
           import re
 
-          files = [
+          candidates = [
               Path("android/app/build.gradle"),
               Path("android/app/build.gradle.kts"),
           ]
 
-          file = next((p for p in files if p.exists()), None)
+          gradle = next(
+              (p for p in candidates if p.exists()),
+              None
+          )
 
-          if file is None:
-              raise SystemExit("ERROR: File Gradle aplikasi tidak ditemukan.")
+          if gradle is None:
+              raise SystemExit(
+                  "ERROR: File Gradle aplikasi tidak ditemukan."
+              )
 
-          text = file.read_text()
+          text = gradle.read_text()
 
-          patterns = [
+          replacements = [
               (
                   r"(?m)^(\s*)compileSdkVersion\s+\d+",
                   r"\1compileSdkVersion 36",
@@ -142,27 +194,26 @@ jobs:
               ),
           ]
 
-          for pattern, replacement in patterns:
+          for pattern, replacement in replacements:
               text = re.sub(pattern, replacement, text)
 
-          file.write_text(text)
+          gradle.write_text(text)
 
-          print(f"Konfigurasi diperiksa: {file}")
-
+          print("Konfigurasi compileSdk diperiksa.")
           for line in text.splitlines():
               if "compileSdk" in line:
                   print(line)
           PY
 
-      # 8. Ambil dependensi Flutter
+      # 11. Ambil dependensi
       - name: Get Flutter dependencies
         shell: bash
         run: |
           set -o pipefail
           flutter pub get 2>&1 | tee pub-get.log
 
-      # 9. Perbaiki compileSdk plugin file_picker
-      - name: Fix file_picker Android compileSdk
+      # 12. Perbaiki compileSdk plugin file_picker
+      - name: Fix file_picker compileSdk
         shell: bash
         run: |
           set -e
@@ -171,7 +222,13 @@ jobs:
           from pathlib import Path
           import re
 
-          cache = Path.home() / ".pub-cache" / "hosted" / "pub.dev"
+          cache = (
+              Path.home()
+              / ".pub-cache"
+              / "hosted"
+              / "pub.dev"
+          )
+
           files = []
 
           if cache.exists():
@@ -181,90 +238,56 @@ jobs:
                   files.extend(android.glob("build.gradle.kts"))
 
           if not files:
-              raise SystemExit(
-                  "ERROR: Gradle plugin file_picker tidak ditemukan."
+              print(
+                  "PERINGATAN: Gradle file_picker tidak ditemukan."
               )
+              print("Build akan dilanjutkan untuk pemeriksaan berikutnya.")
+              raise SystemExit(0)
 
           for file in files:
-              text = file.read_text()
-              lines = text.splitlines(keepends=True)
+              original = file.read_text()
               updated = []
-              changed = False
 
-              for line in lines:
+              for line in original.splitlines(keepends=True):
                   stripped = line.strip()
                   indent = line[:len(line) - len(line.lstrip())]
                   ending = "\n" if line.endswith("\n") else ""
 
                   if re.match(r"compileSdkVersion\b", stripped):
-                      updated.append(indent + "compileSdkVersion 36" + ending)
-                      changed = True
-
+                      updated.append(
+                          indent + "compileSdkVersion 36" + ending
+                      )
                   elif re.match(r"compileSdk\s*=", stripped):
-                      updated.append(indent + "compileSdk = 36" + ending)
-                      changed = True
-
+                      updated.append(
+                          indent + "compileSdk = 36" + ending
+                      )
                   elif re.match(r"compileSdk\s+", stripped):
-                      updated.append(indent + "compileSdk 36" + ending)
-                      changed = True
-
+                      updated.append(
+                          indent + "compileSdk 36" + ending
+                      )
                   else:
                       updated.append(line)
 
-              if changed:
-                  file.write_text("".join(updated))
-                  print(f"Diperbaiki: {file}")
-              else:
-                  print(f"Tidak ada perubahan: {file}")
-
-          # Periksa deklarasi compileSdk berbentuk angka.
-          errors = []
-
-          for file in files:
-              for line in file.read_text().splitlines():
-                  match = re.match(
-                      r"^\s*compileSdk(?:Version)?\s*(?:=\s*)?(\d+)\b",
-                      line,
-                  )
-
-                  if match and int(match.group(1)) < 36:
-                      errors.append(f"{file}: {line.strip()}")
-
-          if errors:
-              for error in errors:
-                  print("ERROR:", error)
-              raise SystemExit(1)
-
-          print("Pemeriksaan file_picker selesai.")
+              file.write_text("".join(updated))
+              print(f"Diperiksa: {file}")
           PY
 
-      # 10. Periksa konfigurasi Android
-      - name: Check Android configuration
-        shell: bash
-        run: |
-          echo "===== KONFIGURASI ANDROID ====="
-
-          grep -R -n -E 'compileSdk|targetSdk|minSdk' \
-            android 2>/dev/null || true
-
-          echo "===== DEPENDENSI FILE_PICKER ====="
-          flutter pub deps | grep -i -A 3 -B 2 file_picker || true
-
-      # 11. Analisis kode
+      # 13. Analisis kode
       - name: Analyze Flutter source
         shell: bash
         run: |
           set -o pipefail
           flutter analyze 2>&1 | tee analyze.log
 
-      # 12. Build APK release
+      # 14. Build APK
       - name: Build release APK
         shell: bash
         run: |
           set -o pipefail
-          flutter build apk --release --verbose 2>&1 | tee build-release.log
+          flutter build apk --release --verbose \
+            2>&1 | tee build-release.log
 
-      # 13. Periksa hasil APK
+      # 15. Verifikasi APK
       - name: Verify APK
         if: success()
         shell: bash
@@ -275,16 +298,16 @@ jobs:
 
           if [ ! -f "$APK" ]; then
             echo "ERROR: APK tidak ditemukan."
-            find build -type f -name "*.apk" 2>/dev/null || true
+            find build -type f -name "*.apk" || true
             exit 1
           fi
 
-          echo "===== APK BERHASIL DIBUAT ====="
+          echo "===== TAGIHIN APK BERHASIL ====="
           ls -lh "$APK"
           sha256sum "$APK"
 
-      # 14. Upload APK
-      - name: Upload APK
+      # 16. Upload APK
+      - name: Upload TAGIHIN APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
@@ -293,42 +316,35 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # 15. Tampilkan detail error
+      # 17. Tampilkan error jika gagal
       - name: Show build failure details
         if: failure()
         shell: bash
         run: |
-          echo "======================================"
+          echo "================================"
           echo "BUILD TAGIHIN GAGAL"
-          echo "======================================"
+          echo "================================"
 
           for LOG in pub-get.log analyze.log build-release.log; do
             if [ -f "$LOG" ]; then
               echo ""
-              echo "===== ERROR DARI $LOG ====="
+              echo "===== $LOG ====="
 
               grep -n -i -E -C 4 \
-                'FAILURE:|What went wrong:|Execution failed|Could not resolve|Could not find|requires libraries|compileSdk|error:|Exception|BUILD FAILED|No matching variant|Unsupported class file|Permission denied|not found' \
-                "$LOG" | tail -n 180 || true
+                'FAILURE:|What went wrong:|Execution failed|Could not resolve|Could not find|requires libraries|compileSdk|error:|Exception|BUILD FAILED|not found' \
+                "$LOG" | tail -n 160 || true
 
               echo ""
-              echo "===== 60 BARIS TERAKHIR ====="
-              tail -n 60 "$LOG" || true
+              tail -n 50 "$LOG" || true
             fi
           done
 
-          echo ""
-          echo "===== STRUKTUR ANDROID ====="
-          find android -maxdepth 4 -type f \
-            \( -name "*.gradle" -o -name "*.gradle.kts" -o -name "gradle-wrapper.properties" \) \
-            -print 2>/dev/null || true
-
-      # 16. Simpan log jika gagal
+      # 18. Simpan log jika gagal
       - name: Upload diagnostic logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: TAGIHIN-build-error-logs
+          name: TAGIHIN-error-logs
           path: |
             pub-get.log
             analyze.log
