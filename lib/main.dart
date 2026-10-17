@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:archive/archive.dart';
 
-import 'package:excel_community/excel_community.dart';
+import 'package:excel/excel.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -24,23 +24,19 @@ Uint8List normalizeExcelNumberFormats(Uint8List input) {
 
     var xml = utf8.decode(stylesFile.content as List<int>, allowMalformed: true);
     final customIds = <int>{};
-    var maxExistingId = 163;
     final numFmtTag = RegExp(r'<numFmt\b[^>]*>', caseSensitive: false);
     for (final match in numFmtTag.allMatches(xml)) {
       final idMatch = RegExp(r"""\bnumFmtId\s*=\s*["'](\d+)["']""", caseSensitive: false)
           .firstMatch(match.group(0)!);
       if (idMatch != null) {
         final id = int.tryParse(idMatch.group(1)!);
-        if (id != null) {
-          if (id >= 164 && id > maxExistingId) maxExistingId = id;
-          if (id < 164) customIds.add(id);
-        }
+        if (id != null && id < 164) customIds.add(id);
       }
     }
     if (customIds.isEmpty) return input;
 
     final mapping = <int, int>{};
-    var nextId = maxExistingId + 1;
+    var nextId = 164;
     for (final id in customIds.toList()..sort()) {
       mapping[id] = nextId++;
     }
@@ -67,7 +63,11 @@ Uint8List normalizeExcelNumberFormats(Uint8List input) {
       },
     );
 
-    stylesFile.content = utf8.encode(xml);
+    // ArchiveFile.content bersifat final pada versi archive yang digunakan.
+    // Ganti entri styles.xml dengan objek baru, bukan mengubah content-nya.
+    final normalizedStyles = utf8.encode(xml);
+    archive.removeFile('xl/styles.xml');
+    archive.addFile(ArchiveFile('xl/styles.xml', normalizedStyles.length, normalizedStyles));
     final encoded = ZipEncoder().encode(archive);
     return encoded == null ? input : Uint8List.fromList(encoded);
   } catch (_) {
@@ -286,12 +286,8 @@ class _MainPageState extends State<MainPage> {
         destinations:const [NavigationDestination(icon:Icon(Icons.home_outlined),selectedIcon:Icon(Icons.home),label:'Beranda'),NavigationDestination(icon:Icon(Icons.calendar_month_outlined),selectedIcon:Icon(Icons.calendar_month),label:'Jadwal'),NavigationDestination(icon:Icon(Icons.groups_outlined),selectedIcon:Icon(Icons.groups),label:'Anggota'),NavigationDestination(icon:Icon(Icons.payments_outlined),selectedIcon:Icon(Icons.payments),label:'Penagihan'),NavigationDestination(icon:Icon(Icons.assessment_outlined),selectedIcon:Icon(Icons.assessment),label:'Laporan')]));
   }
   Future<void> importFile() async {
-    final result=await FilePicker.platform.pickFiles(type:FileType.custom,allowedExtensions:['xlsx'],withData:true);
-    if(result==null)return;
-    if(result.files.single.bytes==null) {
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('File Excel tidak dapat dibaca. Pilih file .xlsx lalu coba lagi.')));
-      return;
-    }
+    final result=await FilePicker.platform.pickFiles(type:FileType.custom,allowedExtensions:['xlsx','xls'],withData:true);
+    if(result==null||result.files.single.bytes==null)return;
     if (!mounted) return;
     final now=DateTime.now(); final period=DateFormat('yyyy-MM').format(now);
     final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Impor tagihan bulanan'),content:Text('Data akan dicocokkan untuk periode $period. Tagihan periode lain dan riwayat pembayaran tidak dihapus. Lanjutkan?'),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Batal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Impor'))]));
