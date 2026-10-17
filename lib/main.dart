@@ -173,12 +173,44 @@ class Store extends ChangeNotifier {
   bool loaded = false;
 
   Future<void> load() async {
-    final p = await SharedPreferences.getInstance();
-    marketingName = p.getString('marketingName') ?? 'Marketing';
-    members = (jsonDecode(p.getString('members') ?? '[]') as List).map((e)=>Member.fromJson(Map<String,dynamic>.from(e))).toList();
-    loans = (jsonDecode(p.getString('loans') ?? '[]') as List).map((e)=>Loan.fromJson(Map<String,dynamic>.from(e))).toList();
-    logs = (jsonDecode(p.getString('logs') ?? '[]') as List).map((e)=>CollectionLog.fromJson(Map<String,dynamic>.from(e))).toList();
-    loaded = true; notifyListeners();
+    try {
+      final p = await SharedPreferences.getInstance();
+      marketingName = p.getString('marketingName') ?? 'Marketing';
+
+      // Muat tiap kelompok data secara terpisah agar satu data rusak
+      // tidak langsung menghentikan seluruh proses pembukaan aplikasi.
+      try {
+        final raw = jsonDecode(p.getString('members') ?? '[]') as List;
+        members = raw.map((e) => Member.fromJson(Map<String, dynamic>.from(e))).toList();
+      } catch (e) {
+        debugPrint('TAGIHIN: gagal memuat anggota: $e');
+        members = [];
+      }
+
+      try {
+        final raw = jsonDecode(p.getString('loans') ?? '[]') as List;
+        loans = raw.map((e) => Loan.fromJson(Map<String, dynamic>.from(e))).toList();
+      } catch (e) {
+        debugPrint('TAGIHIN: gagal memuat tagihan: $e');
+        loans = [];
+      }
+
+      try {
+        final raw = jsonDecode(p.getString('logs') ?? '[]') as List;
+        logs = raw.map((e) => CollectionLog.fromJson(Map<String, dynamic>.from(e))).toList();
+      } catch (e) {
+        debugPrint('TAGIHIN: gagal memuat riwayat: $e');
+        logs = [];
+      }
+
+      debugPrint('TAGIHIN: pemuatan data selesai. Anggota=${members.length}, tagihan=${loans.length}, riwayat=${logs.length}');
+    } catch (e, stackTrace) {
+      debugPrint('TAGIHIN: gagal inisialisasi penyimpanan: $e');
+      debugPrintStack(stackTrace: stackTrace);
+    } finally {
+      loaded = true;
+      notifyListeners();
+    }
   }
   Future<void> save() async {
     final p = await SharedPreferences.getInstance();
@@ -273,8 +305,44 @@ class MyApp extends StatelessWidget {
 
 class BootPage extends StatefulWidget { const BootPage({super.key}); @override State<BootPage> createState()=>_BootPageState(); }
 class _BootPageState extends State<BootPage> {
-  @override void initState(){super.initState();store.load().then((_){if(mounted)setState((){});});}
-  @override Widget build(BuildContext context) => !store.loaded ? const Scaffold(body:Center(child:CircularProgressIndicator())) : const MainPage();
+  @override
+  void initState() {
+    super.initState();
+    _loadApp();
+  }
+
+  Future<void> _loadApp() async {
+    try {
+      // Hindari layar loading tanpa akhir jika inisialisasi penyimpanan macet.
+      await store.load().timeout(const Duration(seconds: 12));
+    } catch (e, stackTrace) {
+      debugPrint('TAGIHIN: proses awal gagal/timeout: $e');
+      debugPrintStack(stackTrace: stackTrace);
+      store.loaded = true;
+      store.notifyListeners();
+    } finally {
+      if (mounted) setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!store.loaded) {
+      return const Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Memuat TAGIHIN...'),
+            ],
+          ),
+        ),
+      );
+    }
+    return const MainPage();
+  }
 }
 
 class MainPage extends StatefulWidget { const MainPage({super.key}); @override State<MainPage> createState()=>_MainPageState(); }
