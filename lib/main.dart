@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:archive/archive.dart';
 
-import 'package:excel/excel.dart';
+import 'package:excel/excel.dart' hide Border;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -63,11 +63,15 @@ Uint8List normalizeExcelNumberFormats(Uint8List input) {
       },
     );
 
-    // ArchiveFile.content bersifat final pada versi archive yang digunakan.
-    // Ganti entri styles.xml dengan objek baru, bukan mengubah content-nya.
-    final normalizedStyles = utf8.encode(xml);
-    archive.removeFile('xl/styles.xml');
-    archive.addFile(ArchiveFile('xl/styles.xml', normalizedStyles.length, normalizedStyles));
+    final newContent = utf8.encode(xml);
+    archive.files.remove(stylesFile);
+    archive.files.add(
+      ArchiveFile(
+        stylesFile.name,
+        newContent.length,
+        newContent,
+      ),
+    );
     final encoded = ZipEncoder().encode(archive);
     return encoded == null ? input : Uint8List.fromList(encoded);
   } catch (_) {
