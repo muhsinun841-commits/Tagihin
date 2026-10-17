@@ -319,7 +319,6 @@ class _BootPageState extends State<BootPage> {
       debugPrint('TAGIHIN: proses awal gagal/timeout: $e');
       debugPrintStack(stackTrace: stackTrace);
       store.loaded = true;
-      store.notifyListeners();
     } finally {
       if (mounted) setState(() {});
     }
