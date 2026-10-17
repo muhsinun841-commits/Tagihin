@@ -20,7 +20,7 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      # 2. Setup Java
+      # 2. Setup Java 17
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
@@ -41,8 +41,9 @@ jobs:
           set -e
           java -version
           flutter --version
+          dart --version
 
-      # 5. Buat konfigurasi Android jika belum ada
+      # 5. Periksa proyek Android
       - name: Check project and generate Android
         shell: bash
         run: |
@@ -64,19 +65,22 @@ jobs:
 
           echo "Folder Android siap."
 
-      # 6. Periksa file logo
+      # 6. Periksa logo TAGIHIN
       - name: Check Tagihin logo
         shell: bash
         run: |
           set -e
 
-          if [ ! -f assets/icon/tagihin.png ]; then
-            echo "ERROR: Logo tidak ditemukan."
-            echo "Unggah logo ke assets/icon/tagihin.png."
+          LOGO="assets/icon/tagihin.png"
+
+          if [ ! -f "$LOGO" ]; then
+            echo "ERROR: Logo tidak ditemukan: $LOGO"
+            echo "Pastikan logo tersedia di assets/icon/tagihin.png."
             exit 1
           fi
 
-          file assets/icon/tagihin.png
+          file "$LOGO"
+          ls -lh "$LOGO"
 
       # 7. Atur nama aplikasi
       - name: Set app name to Tagihin
@@ -97,78 +101,62 @@ jobs:
           if re.search(r'android:label="[^"]*"', text):
               text = re.sub(
                   r'android:label="[^"]*"',
-                  'android:label="Tagihin"',
+                  'android:label="TAGIHIN"',
                   text,
                   count=1
               )
           else:
               text = re.sub(
                   r'<application\b',
-                  '<application android:label="Tagihin"',
+                  '<application android:label="TAGIHIN"',
                   text,
                   count=1
               )
 
           manifest.write_text(text)
-          print("Nama aplikasi diatur menjadi Tagihin.")
+          print("Nama aplikasi diatur menjadi TAGIHIN.")
           PY
 
-      # 8. Siapkan gambar ikon
-      - name: Prepare Tagihin icon
+      # 8. Siapkan dependensi Flutter
+      - name: Get Flutter dependencies
         shell: bash
         run: |
           set -e
+          set -o pipefail
 
-          python3 -m pip install --upgrade Pillow
-
-          python3 - <<'PY'
-          from PIL import Image
-          from pathlib import Path
-
-          source = Path("assets/icon/tagihin.png")
-
-          if not source.exists():
-              raise SystemExit("ERROR: Logo Tagihin tidak ditemukan.")
-
-          image = Image.open(source).convert("RGBA")
-
-          # Pertahankan seluruh logo di dalam gambar persegi.
-          image.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
-
-          background = Image.new("RGBA", (1024, 1024), "white")
-
-          x = (1024 - image.width) // 2
-          y = (1024 - image.height) // 2
-
-          background.alpha_composite(image, (x, y))
-
-          background.convert("RGB").save(source, "PNG")
-
-          print("Logo berhasil disiapkan.")
-          PY
+          flutter pub get 2>&1 | tee pub-get.log
 
       # 9. Buat ikon launcher Android
       - name: Generate Tagihin launcher icon
         shell: bash
         run: |
           set -e
+          set -o pipefail
 
-          flutter pub add --dev flutter_launcher_icons
+          echo "===== MEMBUAT IKON TAGIHIN ====="
 
-          cat > flutter_launcher_icons.yaml <<'EOF'
-          flutter_launcher_icons:
-            android: true
-            ios: false
-            image_path: "assets/icon/tagihin.png"
-            adaptive_icon_background: "#FFFFFF"
-            adaptive_icon_foreground: "assets/icon/tagihin.png"
-          EOF
+          if ! grep -q "flutter_launcher_icons:" pubspec.yaml; then
+            echo "ERROR: Konfigurasi flutter_launcher_icons tidak ditemukan."
+            echo "Tambahkan konfigurasi ikon ke pubspec.yaml."
+            exit 1
+          fi
 
-          dart run flutter_launcher_icons
+          dart run flutter_launcher_icons 2>&1 | tee icon.log
 
-          echo "===== IKON ANDROID ====="
+          echo "===== FILE IKON ANDROID ====="
+
           find android/app/src/main/res \
-            -type f -name "*launcher*" -print
+            -type f \
+            \( -name "ic_launcher.png" -o -name "ic_launcher.xml" \) \
+            -print
+
+          if [ ! -f android/app/src/main/res/mipmap-hdpi/ic_launcher.png ] \
+            && [ ! -f android/app/src/main/res/mipmap-hdpi/ic_launcher.xml ]; then
+            echo "ERROR: Ikon launcher belum berhasil dibuat."
+            exit 1
+          fi
+
+          echo "Ikon TAGIHIN berhasil dibuat."
 
       # 10. Pasang Android SDK 36
       - name: Install Android SDK 36
@@ -245,14 +233,7 @@ jobs:
                   print(line)
           PY
 
-      # 12. Ambil dependensi Flutter
-      - name: Get Flutter dependencies
-        shell: bash
-        run: |
-          set -o pipefail
-          flutter pub get 2>&1 | tee pub-get.log
-
-      # 13. Perbaiki compileSdk file_picker
+      # 12. Periksa dan sesuaikan compileSdk file_picker
       - name: Fix file_picker compileSdk
         shell: bash
         run: |
@@ -278,7 +259,10 @@ jobs:
                   files.extend(android.glob("build.gradle.kts"))
 
           if not files:
-              print("PERINGATAN: File Gradle file_picker tidak ditemukan.")
+              print(
+                  "INFO: Gradle file_picker tidak ditemukan; "
+                  "langkah ini dilewati."
+              )
               raise SystemExit(0)
 
           for file in files:
@@ -309,7 +293,7 @@ jobs:
               print(f"Diperiksa: {file}")
           PY
 
-      # 14. Periksa ikon dan nama sebelum build
+      # 13. Verifikasi nama dan ikon
       - name: Verify Tagihin branding
         shell: bash
         run: |
@@ -319,32 +303,29 @@ jobs:
           grep -n 'android:label' \
             android/app/src/main/AndroidManifest.xml || true
 
-          echo "===== IKON YANG TERSEDIA ====="
+          echo "===== IKON ANDROID ====="
           find android/app/src/main/res \
-            -type f -name "*launcher*" -print
+            -type f \
+            \( -name "ic_launcher.png" -o -name "ic_launcher.xml" \) \
+            -print
 
-          if ! find android/app/src/main/res \
-            -type f -name "*launcher*" | grep -q .; then
-            echo "ERROR: File ikon launcher tidak ditemukan."
-            exit 1
-          fi
-
-      # 15. Analisis kode
+      # 14. Analisis kode Flutter
       - name: Analyze Flutter source
         shell: bash
         run: |
           set -o pipefail
           flutter analyze 2>&1 | tee analyze.log
 
-      # 16. Build APK release
+      # 15. Build APK release
       - name: Build release APK
         shell: bash
         run: |
           set -o pipefail
+
           flutter build apk --release --verbose \
             2>&1 | tee build-release.log
 
-      # 17. Verifikasi APK
+      # 16. Verifikasi APK
       - name: Verify APK
         if: success()
         shell: bash
@@ -359,11 +340,14 @@ jobs:
             exit 1
           fi
 
-          echo "===== TAGIHIN APK BERHASIL ====="
+          echo "================================"
+          echo "TAGIHIN APK BERHASIL DIBUAT"
+          echo "================================"
+
           ls -lh "$APK"
           sha256sum "$APK"
 
-      # 18. Upload APK
+      # 17. Upload APK
       - name: Upload TAGIHIN APK
         if: success()
         uses: actions/upload-artifact@v4
@@ -373,7 +357,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # 19. Tampilkan error build
+      # 18. Tampilkan detail jika build gagal
       - name: Show build failure details
         if: failure()
         shell: bash
@@ -382,7 +366,7 @@ jobs:
           echo "BUILD TAGIHIN GAGAL"
           echo "================================"
 
-          for LOG in pub-get.log analyze.log build-release.log; do
+          for LOG in pub-get.log icon.log analyze.log build-release.log; do
             if [ -f "$LOG" ]; then
               echo ""
               echo "===== $LOG ====="
@@ -396,7 +380,7 @@ jobs:
             fi
           done
 
-      # 20. Simpan log jika gagal
+      # 19. Simpan log diagnostik jika gagal
       - name: Upload diagnostic logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -404,6 +388,7 @@ jobs:
           name: TAGIHIN-error-logs
           path: |
             pub-get.log
+            icon.log
             analyze.log
             build-release.log
           if-no-files-found: ignore
