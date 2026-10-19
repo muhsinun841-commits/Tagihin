@@ -134,19 +134,71 @@ class Loan {
   String memberId;
   String product;
   DateTime dueDate;
-  double amount;
+  double amount; // jumlah tagihan periode ini
   double paid;
   String period;
   String status;
-  Loan({required this.id, required this.memberId, required this.product, required this.dueDate,
-    required this.amount, this.paid = 0, required this.period, this.status = 'Belum lunas'});
-  double get remaining => (amount - paid).clamp(0, double.infinity);
-  Map<String, dynamic> toJson() => {'id':id,'memberId':memberId,'product':product,'dueDate':dueDate.toIso8601String(),'amount':amount,'paid':paid,'period':period,'status':status};
-  factory Loan.fromJson(Map<String,dynamic> j) => Loan(
-    id: j['id'] ?? '', memberId: j['memberId'] ?? '', product: j['product'] ?? 'Angsuran',
-    dueDate: DateTime.tryParse(j['dueDate'] ?? '') ?? DateTime.now(),
-    amount: (j['amount'] as num? ?? 0).toDouble(), paid: (j['paid'] as num? ?? 0).toDouble(),
-    period: j['period'] ?? DateFormat('yyyy-MM').format(DateTime.now()), status: j['status'] ?? 'Belum lunas');
+  String accountNumber;
+  DateTime? startDate;
+  int termMonths;
+  double principal;
+  double balance;
+  double overduePrincipal;
+  double overdueProfit;
+  double currentPrincipal;
+  double currentProfit;
+
+  Loan({
+    required this.id,
+    required this.memberId,
+    required this.product,
+    required this.dueDate,
+    required this.amount,
+    this.paid = 0,
+    required this.period,
+    this.status = 'Belum lunas',
+    this.accountNumber = '',
+    this.startDate,
+    this.termMonths = 0,
+    this.principal = 0,
+    this.balance = 0,
+    this.overduePrincipal = 0,
+    this.overdueProfit = 0,
+    this.currentPrincipal = 0,
+    this.currentProfit = 0,
+  });
+
+  double get remaining => (amount - paid).clamp(0, double.infinity).toDouble();
+
+  Map<String, dynamic> toJson() => {
+    'id': id, 'memberId': memberId, 'product': product,
+    'dueDate': dueDate.toIso8601String(), 'amount': amount, 'paid': paid,
+    'period': period, 'status': status, 'accountNumber': accountNumber,
+    'startDate': startDate?.toIso8601String(), 'termMonths': termMonths,
+    'principal': principal, 'balance': balance,
+    'overduePrincipal': overduePrincipal, 'overdueProfit': overdueProfit,
+    'currentPrincipal': currentPrincipal, 'currentProfit': currentProfit,
+  };
+
+  factory Loan.fromJson(Map<String, dynamic> j) => Loan(
+    id: j['id']?.toString() ?? '',
+    memberId: j['memberId']?.toString() ?? '',
+    product: j['product']?.toString() ?? 'Angsuran',
+    dueDate: DateTime.tryParse(j['dueDate']?.toString() ?? '') ?? DateTime.now(),
+    amount: (j['amount'] as num? ?? 0).toDouble(),
+    paid: (j['paid'] as num? ?? 0).toDouble(),
+    period: j['period']?.toString() ?? DateFormat('yyyy-MM').format(DateTime.now()),
+    status: j['status']?.toString() ?? 'Belum lunas',
+    accountNumber: j['accountNumber']?.toString() ?? '',
+    startDate: DateTime.tryParse(j['startDate']?.toString() ?? ''),
+    termMonths: (j['termMonths'] as num? ?? 0).toInt(),
+    principal: (j['principal'] as num? ?? 0).toDouble(),
+    balance: (j['balance'] as num? ?? 0).toDouble(),
+    overduePrincipal: (j['overduePrincipal'] as num? ?? 0).toDouble(),
+    overdueProfit: (j['overdueProfit'] as num? ?? 0).toDouble(),
+    currentPrincipal: (j['currentPrincipal'] as num? ?? 0).toDouble(),
+    currentProfit: (j['currentProfit'] as num? ?? 0).toDouble(),
+  );
 }
 
 class Member {
@@ -163,6 +215,14 @@ class CollectionLog {
   CollectionLog({required this.id, required this.loanId, required this.memberId, required this.result, required this.note, required this.createdAt, required this.amountPaid});
   Map<String,dynamic> toJson() => {'id':id,'loanId':loanId,'memberId':memberId,'result':result,'note':note,'createdAt':createdAt.toIso8601String(),'amountPaid':amountPaid};
   factory CollectionLog.fromJson(Map<String,dynamic> j) => CollectionLog(id:j['id']??'',loanId:j['loanId']??'',memberId:j['memberId']??'',result:j['result']??'',note:j['note']??'',createdAt:DateTime.tryParse(j['createdAt']??'')??DateTime.now(),amountPaid:(j['amountPaid'] as num? ?? 0).toDouble());
+}
+
+class ImportStats {
+  final int membersImported;
+  final int loansImported;
+  final int rowsWithoutDueDate;
+  final String period;
+  const ImportStats({required this.membersImported, required this.loansImported, required this.rowsWithoutDueDate, required this.period});
 }
 
 class Store extends ChangeNotifier {
@@ -227,59 +287,180 @@ class Store extends ChangeNotifier {
     logs.insert(0, CollectionLog(id:DateTime.now().microsecondsSinceEpoch.toString(),loanId:l.id,memberId:l.memberId,result:result,note:note,createdAt:DateTime.now(),amountPaid:paid));
     await save();
   }
-  Future<void> importExcel(Uint8List bytes, String period) async {
-    final safeBytes = normalizeExcelNumberFormats(bytes);
-    final book = Excel.decodeBytes(safeBytes);
-    if (book.tables.isEmpty) throw Exception('File Excel tidak memiliki sheet.');
-    final sheet = book.tables.values.first;
-    if (sheet.rows.length < 2) throw Exception('Data Excel kosong.');
-    final headers = sheet.rows.first.map((c)=>(c?.value?.toString() ?? '').toLowerCase().trim()).toList();
-    int find(List<String> keys) => headers.indexWhere((h)=>keys.any((k)=>h.contains(k)));
-    final iName=find(['nama anggota','nama nasabah','nama','anggota']);
-    final iAddr=find(['alamat']);
-    final iPhone=find(['no hp','nomor hp','telepon','no telp','whatsapp','hp']);
-    final iDue=find(['jatuh tempo','tgl jatuh tempo','tanggal angsuran','tanggal tagihan','tgl tempo','tempo']);
-    final iAmount=find(['nominal tagihan','jumlah tagihan','angsuran','tagihan','nominal']);
-    final iMemberId=find(['id anggota','kode anggota','no anggota','nomor anggota']);
-    final iLoanId=find(['id pembiayaan','kode pembiayaan','no pembiayaan','nomor pembiayaan','id tagihan']);
-    final iProduct=find(['jenis pembiayaan','produk','jenis tagihan','pembiayaan']);
-    final iMarketing=find(['marketing','petugas']);
-    if(iName<0 || iDue<0 || iAmount<0) throw Exception('Kolom wajib belum ditemukan. Minimal perlu Nama, Jatuh Tempo, dan Tagihan. Periksa judul kolom Excel.');
-    String val(List<Data?> row, int i) => i<0 || i>=row.length ? '' : (row[i]?.value?.toString().trim() ?? '');
-    int imported=0;
-    for (var r=1; r<sheet.rows.length; r++) {
-      final row=sheet.rows[r];
-      final name=val(row,iName);
-      if(name.isEmpty) continue;
-      final due=parseDate(iDue<row.length ? row[iDue]?.value : null);
-      if(due==null) continue;
-      final rawMemberId=val(row,iMemberId);
-      final memberId=rawMemberId.isNotEmpty ? rawMemberId : 'M-${name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '')}-${val(row,iPhone).replaceAll(RegExp(r'[^0-9]'), '')}';
-      var m=member(memberId);
-      if(m==null) {
-        m=Member(id:memberId,name:name,address:val(row,iAddr),phone:val(row,iPhone),marketing:val(row,iMarketing).isEmpty?marketingName:val(row,iMarketing));
+  Future<ImportStats> importExcel(Uint8List bytes, String fallbackPeriod) async {
+    // Paket excel membaca XLSX, bukan format XLS lama berbasis BIFF.
+    if (bytes.length < 4 || !(bytes[0] == 0x50 && bytes[1] == 0x4B)) {
+      throw Exception('Format file bukan XLSX. Buka file .xls di Excel/WPS lalu pilih Simpan sebagai > Excel Workbook (.xlsx), kemudian impor ulang.');
+    }
+
+    final book = Excel.decodeBytes(normalizeExcelNumberFormats(bytes));
+    if (book.tables.isEmpty) throw Exception('File Excel tidak memiliki sheet yang bisa dibaca.');
+
+    // Pilih sheet Target all bila tersedia; jika tidak, gunakan sheet dengan data terbanyak.
+    Sheet? sheet;
+    for (final entry in book.tables.entries) {
+      if (entry.key.trim().toLowerCase() == 'target all') { sheet = entry.value; break; }
+    }
+    sheet ??= book.tables.values.reduce((a, b) => a.rows.length >= b.rows.length ? a : b);
+    if (sheet.rows.isEmpty) throw Exception('Sheet Excel kosong.');
+
+    String cellText(List<Data?> row, int i) => i < 0 || i >= row.length ? '' : (row[i]?.value?.toString().trim() ?? '');
+    String norm(String value) => value.toLowerCase().replaceAll('\n', ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    // Cari judul kolom dengan menggabungkan baris header berdekatan (laporan sering memakai header 2 tingkat).
+    int headerRow = -1;
+    List<String> headers = [];
+    var bestScore = 0;
+    final scanRows = sheet.rows.length < 30 ? sheet.rows.length : 30;
+    for (var r = 0; r < scanRows; r++) {
+      final combined = <String>[];
+      for (var c = 0; c < sheet.rows[r].length; c++) {
+        final parts = <String>[];
+        for (var rr = r; rr <= r + 1 && rr < scanRows; rr++) {
+          final text = cellText(sheet.rows[rr], c);
+          if (text.isNotEmpty && !parts.contains(text)) parts.add(text);
+        }
+        combined.add(norm(parts.join(' ')));
+      }
+      int score = 0;
+      if (combined.any((h) => h.contains('nama peminjam') || h.contains('nama anggota') || h.contains('nama nasabah'))) score += 3;
+      if (combined.any((h) => h.contains('no rekening') || h.contains('rekening'))) score += 2;
+      if (combined.any((h) => h.contains('tgl j.t') || h.contains('jatuh tempo') || h.contains('tanggal tagihan'))) score += 2;
+      if (combined.any((h) => h.contains('jumlah tagihan') || h.contains('nominal tagihan'))) score += 3;
+      if (score > bestScore) { bestScore = score; headerRow = r; headers = combined; }
+    }
+
+    // Fallback untuk format laporan KSPPS/BMT yang pernah diberikan: header dua baris di Excel baris 13-14.
+    final isKnownReport = bestScore < 5;
+    if (isKnownReport) {
+      headerRow = 12;
+      headers = List<String>.filled(31, '');
+      headers[2] = 'no rekening'; headers[3] = 'nama peminjam'; headers[4] = 'alamat';
+      headers[5] = 'no tlp'; headers[6] = 'tgl mulai'; headers[7] = 'jkw';
+      headers[8] = 'tgl j.t'; headers[9] = 'jumlah pinjaman'; headers[11] = 'baki debet';
+      headers[13] = 'tunggakan pokok'; headers[15] = 'basil';
+      headers[17] = 'tagihan bulan ini pokok'; headers[18] = 'tagihan bulan ini basil';
+      headers[19] = 'jumlah tagihan';
+    }
+
+    int find(List<String> keys, {bool exactFirst = false}) {
+      if (exactFirst) {
+        final exact = headers.indexWhere((h) => keys.any((k) => h == k));
+        if (exact >= 0) return exact;
+      }
+      return headers.indexWhere((h) => h.isNotEmpty && keys.any((k) => h.contains(k)));
+    }
+
+    final iAccount = find(['no rekening', 'nomor rekening', 'rekening']);
+    final iName = find(['nama peminjam', 'nama anggota', 'nama nasabah', 'nama'], exactFirst: true);
+    final iAddr = find(['alamat']);
+    final iPhone = find(['no. tlp', 'no tlp', 'no telp', 'nomor telepon', 'telepon', 'no hp', 'nomor hp', 'whatsapp', 'hp']);
+    final iStart = find(['tgl mulai', 'tanggal mulai', 'tanggal akad']);
+    final iTerm = find(['jkw', 'jangka waktu', 'tenor']);
+    final iDue = find(['tgl j.t', 'tgl jatuh tempo', 'tanggal jatuh tempo', 'jatuh tempo', 'tanggal tagihan', 'tgl tempo', 'tempo']);
+    final iPrincipal = find(['jumlah pinjaman', 'plafon pembiayaan', 'pokok pembiayaan']);
+    final iBalance = find(['baki debet', 'sisa pokok', 'saldo pembiayaan']);
+    final iOverduePrincipal = find(['tunggakan pokok', 'tunggakan angsuran pokok']);
+    final iOverdueProfit = find(['tunggakan basil', 'tunggakan margin', 'tunggakan jasa']);
+    final iCurrentPrincipal = find(['tagihan bulan ini pokok', 'angsuran bulan ini pokok', 'tagihan pokok']);
+    final iCurrentProfit = find(['tagihan bulan ini basil', 'tagihan bulan ini margin', 'angsuran bulan ini basil', 'angsuran bulan ini margin']);
+    var iAmount = find(['jumlah tagihan', 'total tagihan', 'nominal tagihan'], exactFirst: true);
+    if (iAmount < 0) iAmount = find(['tagihan', 'angsuran', 'nominal']);
+    final iMarketing = find(['marketing', 'petugas', 'ao']);
+
+    if (iName < 0) throw Exception('Kolom nama peminjam tidak ditemukan. Pastikan file berisi kolom Nama.');
+    if (iAmount < 0 && (iCurrentPrincipal < 0 || iCurrentProfit < 0)) {
+      throw Exception('Kolom Jumlah Tagihan tidak ditemukan. Pastikan file Excel adalah laporan jadwal tagihan.');
+    }
+
+    String activePeriod = fallbackPeriod;
+    // Periode laporan biasanya ada di bagian atas: "Periode: 01/03/2026 s.d 31/03/2026".
+    for (var r = 0; r < (sheet.rows.length < 15 ? sheet.rows.length : 15); r++) {
+      for (final item in sheet.rows[r]) {
+        final t = item?.value?.toString() ?? '';
+        if (norm(t).contains('periode')) {
+          final match = RegExp(r'(\d{1,2}[/-]\d{1,2}[/-]\d{4})').firstMatch(t);
+          if (match != null) {
+            final d = parseDate(match.group(1));
+            if (d != null) activePeriod = DateFormat('yyyy-MM').format(d);
+          }
+        }
+        if (norm(t).contains('petugas') || norm(t).contains('marketing')) {
+          final split = t.split(':');
+          if (split.length > 1 && split.sublist(1).join(':').trim().isNotEmpty) {
+            marketingName = split.sublist(1).join(':').replaceAll(',', '').trim();
+          }
+        }
+      }
+    }
+
+    int membersImported = 0, loansImported = 0, noDue = 0;
+    final seenMembers = <String>{};
+    // Lewati semua baris sebelum header dan mulai mencari baris data setelah header.
+    for (var r = headerRow + (isKnownReport ? 3 : 1); r < sheet.rows.length; r++) {
+      final row = sheet.rows[r];
+      final name = cellText(row, iName);
+      if (name.isEmpty || norm(name).contains('nama peminjam') || norm(name).contains('jumlah')) continue;
+      final account = cellText(row, iAccount);
+      final phone = cellText(row, iPhone);
+      final address = cellText(row, iAddr);
+      final nameKey = name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      final phoneKey = phone.replaceAll(RegExp(r'[^0-9]'), '');
+      final memberId = 'M-$nameKey-${phoneKey.isEmpty ? account.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '') : phoneKey}';
+      if (nameKey.isEmpty) continue;
+
+      var m = member(memberId);
+      if (m == null) {
+        m = Member(id: memberId, name: name, address: address, phone: phone, marketing: marketingName);
         members.add(m);
       } else {
-        m.name=name; m.address=val(row,iAddr); m.phone=val(row,iPhone);
-        if(val(row,iMarketing).isNotEmpty) m.marketing=val(row,iMarketing);
+        m.name = name;
+        if (address.isNotEmpty) m.address = address;
+        if (phone.isNotEmpty) m.phone = phone;
+        if (marketingName.isNotEmpty) m.marketing = marketingName;
       }
-      final loanIdRaw=val(row,iLoanId);
-      final product=val(row,iProduct).isEmpty?'Angsuran':val(row,iProduct);
-      final loanId=loanIdRaw.isNotEmpty ? '$loanIdRaw-$period' : '$memberId-${product.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '')}-${DateFormat('yyyyMMdd').format(due)}-$period';
-      final existing=loans.indexWhere((l)=>l.id==loanId);
-      final amount=parseMoney(iAmount<row.length?row[iAmount]?.value:null);
-      if(existing>=0) {
-        final old=loans[existing];
-        // Do not reset payment already recorded for this period.
-        old.product=product; old.dueDate=due; old.amount=amount;
-        old.status=old.paid>=old.amount?'Lunas':'Belum lunas';
+      if (seenMembers.add(memberId)) membersImported++;
+
+      final due = iDue >= 0 && iDue < row.length ? parseDate(row[iDue]?.value) : null;
+      if (due == null) { noDue++; continue; } // Anggota tetap disimpan walau tidak ada tanggal tagihan.
+
+      double moneyAt(int i) => i < 0 || i >= row.length ? 0 : parseMoney(row[i]?.value);
+      final principal = moneyAt(iPrincipal);
+      final balance = moneyAt(iBalance);
+      final overduePrincipal = moneyAt(iOverduePrincipal);
+      final overdueProfit = moneyAt(iOverdueProfit);
+      final currentPrincipal = moneyAt(iCurrentPrincipal);
+      final currentProfit = moneyAt(iCurrentProfit);
+      // Prioritaskan kolom Jumlah Tagihan sumber; jangan menjumlahkan komponen bila nilai sumber tersedia.
+      final amount = iAmount >= 0 ? moneyAt(iAmount) : currentPrincipal + currentProfit;
+      final startDate = iStart >= 0 && iStart < row.length ? parseDate(row[iStart]?.value) : null;
+      final termRaw = iTerm >= 0 ? cellText(row, iTerm) : '';
+      final termMonths = int.tryParse(termRaw.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+      final loanId = account.isNotEmpty
+          ? '$account-$activePeriod'
+          : '$memberId-${DateFormat('yyyyMMdd').format(due)}-$activePeriod';
+      final existingIndex = loans.indexWhere((l) => l.id == loanId);
+      if (existingIndex >= 0) {
+        final old = loans[existingIndex];
+        old.memberId = memberId; old.product = 'Pembiayaan'; old.dueDate = due;
+        old.amount = amount; old.period = activePeriod; old.accountNumber = account;
+        old.startDate = startDate; old.termMonths = termMonths; old.principal = principal;
+        old.balance = balance; old.overduePrincipal = overduePrincipal; old.overdueProfit = overdueProfit;
+        old.currentPrincipal = currentPrincipal; old.currentProfit = currentProfit;
+        old.status = old.paid >= old.amount ? 'Lunas' : 'Belum lunas';
       } else {
-        loans.add(Loan(id:loanId,memberId:memberId,product:product,dueDate:due,amount:amount,period:period));
+        loans.add(Loan(id: loanId, memberId: memberId, product: 'Pembiayaan', dueDate: due,
+          amount: amount, period: activePeriod, accountNumber: account, startDate: startDate,
+          termMonths: termMonths, principal: principal, balance: balance,
+          overduePrincipal: overduePrincipal, overdueProfit: overdueProfit,
+          currentPrincipal: currentPrincipal, currentProfit: currentProfit));
       }
-      imported++;
+      loansImported++;
     }
+
+    if (membersImported == 0) throw Exception('Tidak ditemukan baris anggota yang valid. Pastikan kolom Nama benar.');
     await save();
-    if(imported==0) throw Exception('Tidak ada baris valid yang berhasil diimpor.');
+    return ImportStats(membersImported: membersImported, loansImported: loansImported, rowsWithoutDueDate: noDue, period: activePeriod);
   }
 }
 
@@ -319,7 +500,8 @@ class _BootPageState extends State<BootPage> {
       debugPrint('TAGIHIN: proses awal gagal/timeout: $e');
       debugPrintStack(stackTrace: stackTrace);
       store.loaded = true;
-      store.notifyListeners();
+      // BootPage memperbarui tampilan melalui setState pada blok finally.
+      // Jangan memanggil notifyListeners dari luar Store karena analyzer menandainya sebagai warning.
     } finally {
       if (mounted) setState(() {});
     }
@@ -358,13 +540,43 @@ class _MainPageState extends State<MainPage> {
         destinations:const [NavigationDestination(icon:Icon(Icons.home_outlined),selectedIcon:Icon(Icons.home),label:'Beranda'),NavigationDestination(icon:Icon(Icons.calendar_month_outlined),selectedIcon:Icon(Icons.calendar_month),label:'Jadwal'),NavigationDestination(icon:Icon(Icons.groups_outlined),selectedIcon:Icon(Icons.groups),label:'Anggota'),NavigationDestination(icon:Icon(Icons.payments_outlined),selectedIcon:Icon(Icons.payments),label:'Penagihan'),NavigationDestination(icon:Icon(Icons.assessment_outlined),selectedIcon:Icon(Icons.assessment),label:'Laporan')]));
   }
   Future<void> importFile() async {
-    final result=await FilePicker.platform.pickFiles(type:FileType.custom,allowedExtensions:['xlsx','xls'],withData:true);
+    final result=await FilePicker.platform.pickFiles(type:FileType.custom,allowedExtensions:['xlsx'],withData:true);
     if(result==null||result.files.single.bytes==null)return;
     if (!mounted) return;
     final now=DateTime.now(); final period=DateFormat('yyyy-MM').format(now);
-    final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Impor tagihan bulanan'),content:Text('Data akan dicocokkan untuk periode $period. Tagihan periode lain dan riwayat pembayaran tidak dihapus. Lanjutkan?'),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Batal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Impor'))]));
+    String preview = '';
+    try {
+      final previewBook = Excel.decodeBytes(normalizeExcelNumberFormats(result.files.single.bytes!));
+      final previewSheet = previewBook.tables.entries.where((e)=>e.key.trim().toLowerCase()=='target all').isNotEmpty
+          ? previewBook.tables.entries.firstWhere((e)=>e.key.trim().toLowerCase()=='target all').value
+          : (previewBook.tables.isEmpty ? null : previewBook.tables.values.first);
+      if (previewSheet != null) {
+        final lines = <String>[];
+        for (final row in previewSheet.rows) {
+          final values = row.map((c)=>c?.value?.toString().trim() ?? '').where((v)=>v.isNotEmpty).take(8).toList();
+          if (values.isNotEmpty) lines.add(values.join('  |  '));
+          if (lines.length >= 8) break;
+        }
+        preview = lines.join('\n');
+      }
+    } catch (e) {
+      preview = 'Pratinjau tidak tersedia. File tetap akan diperiksa saat proses impor.\n$e';
+    }
+    if (preview.isEmpty) preview = 'Tidak ada baris yang bisa ditampilkan. Pastikan file adalah Excel Workbook (.xlsx).';
+    final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(
+      title:const Text('Pratinjau impor Excel'),
+      content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Text('File: ${result.files.single.name}',style:const TextStyle(fontWeight:FontWeight.w700)),
+        const SizedBox(height:8),
+        Text('Periode cadangan: $period. Sistem akan mencari header dan kolom secara otomatis, termasuk header bertingkat. Anggota tetap disimpan walau tidak memiliki tagihan/jatuh tempo.'),
+        const SizedBox(height:12),
+        Container(width:double.infinity,padding:const EdgeInsets.all(10),decoration:BoxDecoration(color:bg,borderRadius:BorderRadius.circular(10)),child:SelectableText(preview,style:const TextStyle(fontSize:11))),
+        const SizedBox(height:8),
+        const Text('Impor ulang tidak menghapus riwayat pembayaran yang sudah dicatat.'),
+      ])),
+      actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Batal')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Lanjut impor'))]));
     if(ok!=true)return;
-    try { await store.importExcel(result.files.single.bytes!,period); if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Impor selesai. Periksa daftar anggota dan tagihan.'))); }
+    try { final stats = await store.importExcel(result.files.single.bytes!,period); if(mounted) await showDialog<void>(context:context,builder:(_)=>AlertDialog(title:const Text('Impor selesai'),content:Text('Periode: ${stats.period}\nAnggota ditambahkan/diperbarui: ${stats.membersImported}\nTagihan ditambahkan/diperbarui: ${stats.loansImported}\nBaris anggota tanpa tanggal jatuh tempo: ${stats.rowsWithoutDueDate}\n\nRiwayat pembayaran yang sudah dicatat tidak dihapus.'),actions:[FilledButton(onPressed:()=>Navigator.pop(context),child:const Text('Selesai'))])); }
     catch(e){if(mounted)showDialog(context:context,builder:(_)=>AlertDialog(title:const Text('Impor belum berhasil'),content:Text('$e'),actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Tutup'))]));}
   }
 }
