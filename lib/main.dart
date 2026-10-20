@@ -13,70 +13,110 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 
-/// Membetulkan workbook XLSX yang memakai numFmtId custom di bawah 164.
-/// Excel menetapkan ID custom number format mulai dari 164; beberapa file
-/// hasil ekspor melanggar aturan ini dan membuat decoder gagal.
+/// Menormalkan workbook XLSX Strict OOXML menjadi namespace OOXML umum
+/// yang didukung oleh package excel, lalu memperbaiki custom numFmtId lama.
 Uint8List normalizeExcelNumberFormats(Uint8List input) {
   try {
     final archive = ZipDecoder().decodeBytes(input);
-    final stylesFile = archive.findFile('xl/styles.xml');
-    if (stylesFile == null) return input;
 
-    var xml = utf8.decode(stylesFile.content as List<int>, allowMalformed: true);
-    final customIds = <int>{};
-    final numFmtTag = RegExp(r'<numFmt\b[^>]*>', caseSensitive: false);
-    for (final match in numFmtTag.allMatches(xml)) {
-      final idMatch = RegExp(r"""\bnumFmtId\s*=\s*["'](\d+)["']""", caseSensitive: false)
-          .firstMatch(match.group(0)!);
-      if (idMatch != null) {
-        final id = int.tryParse(idMatch.group(1)!);
-        if (id != null && id < 164) customIds.add(id);
+    // Beberapa aplikasi menyimpan XLSX dengan namespace Strict OOXML
+    // (purl.oclc.org), sedangkan package excel mengharapkan namespace umum.
+    const namespaceMappings = <String, String>{
+      'http://purl.oclc.org/ooxml/spreadsheetml/main':
+          'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
+      'http://purl.oclc.org/ooxml/drawingml/main':
+          'http://schemas.openxmlformats.org/drawingml/2006/main',
+      'http://purl.oclc.org/ooxml/officeDocument/relationships':
+          'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+      'http://purl.oclc.org/ooxml/officeDocument':
+          'http://schemas.openxmlformats.org/officeDocument/2006',
+      'http://purl.oclc.org/ooxml/presentationml/main':
+          'http://schemas.openxmlformats.org/presentationml/2006/main',
+    };
+
+    final xmlByName = <String, String>{};
+    for (final file in archive.files.toList()) {
+      final name = file.name.toLowerCase();
+      if (!(name.endsWith('.xml') || name.endsWith('.rels'))) continue;
+      try {
+        var content = utf8.decode(file.content as List<int>, allowMalformed: true);
+        for (final entry in namespaceMappings.entries) {
+          content = content.replaceAll(entry.key, entry.value);
+        }
+        xmlByName[file.name] = content;
+      } catch (_) {
+        // Lewati komponen non-teks yang tidak dapat dibaca sebagai XML.
       }
     }
-    if (customIds.isEmpty) return input;
 
-    final mapping = <int, int>{};
-    var nextId = 164;
-    for (final id in customIds.toList()..sort()) {
-      mapping[id] = nextId++;
+    var stylesXml = xmlByName['xl/styles.xml'];
+    if (stylesXml != null) {
+      final customIds = <int>{};
+      final numFmtTag = RegExp(r'<numFmt\b[^>]*>', caseSensitive: false);
+      for (final match in numFmtTag.allMatches(stylesXml)) {
+        final idMatch = RegExp(
+          r"""\bnumFmtId\s*=\s*["'](\d+)["']""",
+          caseSensitive: false,
+        ).firstMatch(match.group(0)!);
+        if (idMatch != null) {
+          final id = int.tryParse(idMatch.group(1)!);
+          if (id != null && id < 164) customIds.add(id);
+        }
+      }
+
+      if (customIds.isNotEmpty) {
+        final mapping = <int, int>{};
+        var nextId = 164;
+        for (final id in customIds.toList()..sort()) {
+          mapping[id] = nextId++;
+        }
+
+        stylesXml = stylesXml.replaceAllMapped(numFmtTag, (tagMatch) {
+          return tagMatch.group(0)!.replaceAllMapped(
+            RegExp(
+              r"""(\bnumFmtId\s*=\s*["'])(\d+)(["'])""",
+              caseSensitive: false,
+            ),
+            (m) {
+              final oldId = int.tryParse(m.group(2)!);
+              final newId = oldId == null ? null : mapping[oldId];
+              return newId == null
+                  ? m.group(0)!
+                  : '${m.group(1)}$newId${m.group(3)}';
+            },
+          );
+        });
+
+        stylesXml = stylesXml.replaceAllMapped(
+          RegExp(
+            r"""(\bnumFmtId\s*=\s*["'])(\d+)(["'])""",
+            caseSensitive: false,
+          ),
+          (m) {
+            final oldId = int.tryParse(m.group(2)!);
+            final newId = oldId == null ? null : mapping[oldId];
+            return newId == null
+                ? m.group(0)!
+                : '${m.group(1)}$newId${m.group(3)}';
+          },
+        );
+      }
+      xmlByName['xl/styles.xml'] = stylesXml;
     }
 
-    xml = xml.replaceAllMapped(numFmtTag, (tagMatch) {
-      var tag = tagMatch.group(0)!;
-      return tag.replaceAllMapped(
-        RegExp(r"""(\bnumFmtId\s*=\s*["'])(\d+)(["'])""", caseSensitive: false),
-        (m) {
-          final oldId = int.tryParse(m.group(2)!);
-          final newId = oldId == null ? null : mapping[oldId];
-          return newId == null ? m.group(0)! : '${m.group(1)}$newId${m.group(3)}';
-        },
-      );
-    });
+    // Tulis ulang seluruh bagian XML yang dinormalisasi ke dalam ZIP.
+    for (final entry in xmlByName.entries) {
+      final oldFile = archive.findFile(entry.key);
+      if (oldFile == null) continue;
+      final content = utf8.encode(entry.value);
+      archive.files.remove(oldFile);
+      archive.files.add(ArchiveFile(entry.key, content.length, content));
+    }
 
-    // Perbarui semua referensi ke custom ID dalam styles.xml, misalnya xf.
-    xml = xml.replaceAllMapped(
-      RegExp(r"""(\bnumFmtId\s*=\s*["'])(\d+)(["'])""", caseSensitive: false),
-      (m) {
-        final oldId = int.tryParse(m.group(2)!);
-        final newId = oldId == null ? null : mapping[oldId];
-        return newId == null ? m.group(0)! : '${m.group(1)}$newId${m.group(3)}';
-      },
-    );
-
-    final newContent = utf8.encode(xml);
-    archive.files.remove(stylesFile);
-    archive.files.add(
-      ArchiveFile(
-        stylesFile.name,
-        newContent.length,
-        newContent,
-      ),
-    );
     final encoded = ZipEncoder().encode(archive);
     return encoded == null ? input : Uint8List.fromList(encoded);
   } catch (_) {
-    // Jika file bukan XLSX standar atau normalisasi gagal, decoder asli
-    // tetap diberi kesempatan memproses file dan menampilkan error sebenarnya.
+    // Jika normalisasi gagal, biarkan decoder menampilkan error sebenarnya.
     return input;
   }
 }
