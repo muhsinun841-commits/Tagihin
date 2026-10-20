@@ -68,6 +68,14 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Generate Android launcher icon
+        run: |
+          if [ ! -f assets/icon/tagihin.png ]; then
+            echo 'ERROR: assets/icon/tagihin.png tidak ditemukan. Tambahkan file ikon TAGIHIN sesuai pubspec.yaml.'
+            exit 1
+          fi
+          dart run flutter_launcher_icons
+
       - name: Analyze Dart source
         run: |
           set -o pipefail
