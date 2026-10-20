@@ -366,7 +366,6 @@ class Store extends ChangeNotifier {
     final iCurrentProfit = find(['tagihan bulan ini basil', 'tagihan bulan ini margin', 'angsuran bulan ini basil', 'angsuran bulan ini margin']);
     var iAmount = find(['jumlah tagihan', 'total tagihan', 'nominal tagihan'], exactFirst: true);
     if (iAmount < 0) iAmount = find(['tagihan', 'angsuran', 'nominal']);
-    final iMarketing = find(['marketing', 'petugas', 'ao']);
 
     if (iName < 0) throw Exception('Kolom nama peminjam tidak ditemukan. Pastikan file berisi kolom Nama.');
     if (iAmount < 0 && (iCurrentPrincipal < 0 || iCurrentProfit < 0)) {
