@@ -1,0 +1,104 @@
+name: Build TAGIHIN APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tagihin-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Analyze and Build Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Show tool versions
+        run: |
+          flutter --version
+          dart --version
+
+      - name: Verify project files
+        run: |
+          test -f pubspec.yaml || { echo 'ERROR: pubspec.yaml tidak ditemukan di root repository.'; exit 1; }
+          test -f lib/main.dart || { echo 'ERROR: lib/main.dart tidak ditemukan.'; exit 1; }
+          echo 'Jumlah baris lib/main.dart:'
+          wc -l lib/main.dart
+          echo 'Pemeriksaan iMarketing (jika muncul, tampilkan barisnya):'
+          grep -n 'iMarketing' lib/main.dart || true
+
+      - name: Ensure Android platform exists
+        run: |
+          if [ ! -d android ]; then
+            flutter create . --platforms=android --org com.tagihin.app
+          fi
+
+      - name: Set Android app label
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            sed -i 's/android:label="[^"]*"/android:label="TAGIHIN"/' "$MANIFEST"
+          else
+            echo 'ERROR: AndroidManifest.xml tidak ditemukan.'
+            exit 1
+          fi
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Generate Android launcher icon
+        run: |
+          if [ ! -f assets/icon/tagihin.png ]; then
+            echo 'ERROR: assets/icon/tagihin.png tidak ditemukan. Tambahkan file ikon TAGIHIN sesuai pubspec.yaml.'
+            exit 1
+          fi
+          dart run flutter_launcher_icons
+
+      - name: Analyze Dart source
+        run: |
+          set -o pipefail
+          flutter analyze --no-fatal-infos --no-fatal-warnings lib/main.dart 2>&1 | tee analyze.log
+
+      - name: Build release APK
+        run: |
+          set -o pipefail
+          flutter build apk --release 2>&1 | tee build-apk.log
+
+      - name: Verify APK
+        if: success()
+        run: |
+          APK='build/app/outputs/flutter-apk/app-release.apk'
+          test -s "$APK" || { echo 'ERROR: APK tidak ditemukan atau kosong.'; exit 1; }
+          ls -lh "$APK"
+          sha256sum "$APK"
+
+      - name: Upload TAGIHIN APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TAGIHIN-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
