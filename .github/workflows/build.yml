@@ -55,15 +55,24 @@ jobs:
             flutter create . --platforms=android --org com.tagihin.app
           fi
 
-      - name: Set Android app label
+      - name: Set Android app label and icon reference
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
-          if [ -f "$MANIFEST" ]; then
-            sed -i 's/android:label="[^"]*"/android:label="TAGIHIN"/' "$MANIFEST"
-          else
+          if [ ! -f "$MANIFEST" ]; then
             echo 'ERROR: AndroidManifest.xml tidak ditemukan.'
             exit 1
           fi
+          sed -i 's/android:label="[^"]*"/android:label="TAGIHIN"/' "$MANIFEST"
+          # Pastikan manifest menggunakan resource launcher icon yang dihasilkan.
+          if grep -q 'android:icon=' "$MANIFEST"; then
+            sed -i 's#android:icon="[^"]*"#android:icon="@mipmap/ic_launcher"#' "$MANIFEST"
+          else
+            sed -i 's#<application#<application android:icon="@mipmap/ic_launcher"#' "$MANIFEST"
+          fi
+          grep -n 'application\|android:icon\|android:label' "$MANIFEST"
+
+      - name: Clean previous Flutter build
+        run: flutter clean
 
       - name: Get dependencies
         run: flutter pub get
@@ -75,6 +84,12 @@ jobs:
             exit 1
           fi
           dart run flutter_launcher_icons
+          echo 'Launcher icon resources generated:'
+          find android/app/src/main/res -type f -name 'ic_launcher*' -print
+          test -n "$(find android/app/src/main/res -type f -name 'ic_launcher*' -print -quit)" || {
+            echo 'ERROR: resource ic_launcher tidak dihasilkan.'
+            exit 1
+          }
 
       - name: Analyze Dart source
         run: |
