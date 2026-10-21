@@ -121,6 +121,61 @@ Uint8List normalizeExcelNumberFormats(Uint8List input) {
   }
 }
 
+/// Mengganti stylesheet XLSX dengan stylesheet dasar jika parser `excel`
+/// tetap menolak styles.xml sumber. Data sel tetap dipertahankan; yang
+/// dibuang hanya format visual Excel. Nilai tanggal numerik tetap dapat
+/// diproses oleh parseDate().
+Uint8List _withBasicExcelStyles(Uint8List input) {
+  final archive = ZipDecoder().decodeBytes(input);
+  ArchiveFile? styleFile;
+  for (final file in archive.files) {
+    if (file.name.toLowerCase() == 'xl/styles.xml') {
+      styleFile = file;
+      break;
+    }
+  }
+  if (styleFile == null) {
+    throw const FormatException('Komponen xl/styles.xml tidak ditemukan.');
+  }
+
+  const basicStyles = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="1"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font></fonts>
+  <fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
+  <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>
+  <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>''';
+
+  archive.files.remove(styleFile);
+  final encodedStyles = utf8.encode(basicStyles);
+  archive.files.add(ArchiveFile('xl/styles.xml', encodedStyles.length, encodedStyles));
+  final output = ZipEncoder().encode(archive);
+  if (output == null) {
+    throw const FormatException('Gagal menyusun ulang arsip Excel.');
+  }
+  return Uint8List.fromList(output);
+}
+
+/// Coba membaca Excel normal terlebih dahulu. Jika parser menolak stylesheet,
+/// coba lagi dengan stylesheet minimal tanpa mengubah isi sel.
+Excel decodeExcelSafely(Uint8List input) {
+  final normalized = normalizeExcelNumberFormats(input);
+  try {
+    return Excel.decodeBytes(normalized);
+  } catch (firstError) {
+    try {
+      return Excel.decodeBytes(_withBasicExcelStyles(normalized));
+    } catch (secondError) {
+      throw FormatException(
+        'Excel gagal dibaca. Percobaan awal: $firstError. '
+        'Percobaan dengan format dasar: $secondError',
+      );
+    }
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const TagihinApp());
@@ -333,7 +388,7 @@ class Store extends ChangeNotifier {
       throw Exception('Format file bukan XLSX. Buka file .xls di Excel/WPS lalu pilih Simpan sebagai > Excel Workbook (.xlsx), kemudian impor ulang.');
     }
 
-    final book = Excel.decodeBytes(normalizeExcelNumberFormats(bytes));
+    final book = decodeExcelSafely(bytes);
     if (book.tables.isEmpty) throw Exception('File Excel tidak memiliki sheet yang bisa dibaca.');
 
     // Pilih sheet Target all bila tersedia; jika tidak, gunakan sheet dengan data terbanyak.
@@ -585,7 +640,7 @@ class _MainPageState extends State<MainPage> {
     final now=DateTime.now(); final period=DateFormat('yyyy-MM').format(now);
     String preview = '';
     try {
-      final previewBook = Excel.decodeBytes(normalizeExcelNumberFormats(result.files.single.bytes!));
+      final previewBook = decodeExcelSafely(result.files.single.bytes!);
       final previewSheet = previewBook.tables.entries.where((e)=>e.key.trim().toLowerCase()=='target all').isNotEmpty
           ? previewBook.tables.entries.firstWhere((e)=>e.key.trim().toLowerCase()=='target all').value
           : (previewBook.tables.isEmpty ? null : previewBook.tables.values.first);
