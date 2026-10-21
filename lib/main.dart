@@ -104,16 +104,20 @@ Uint8List normalizeExcelNumberFormats(Uint8List input) {
       xmlByName['xl/styles.xml'] = stylesXml;
     }
 
-    // Tulis ulang seluruh bagian XML yang dinormalisasi ke dalam ZIP.
-    for (final entry in xmlByName.entries) {
-      final oldFile = archive.findFile(entry.key);
-      if (oldFile == null) continue;
-      final content = utf8.encode(entry.value);
-      archive.files.remove(oldFile);
-      archive.files.add(ArchiveFile(entry.key, content.length, content));
+    // Buat arsip baru. archive.files dapat berupa daftar yang tidak bisa diubah,
+    // sehingga jangan memanggil remove/add langsung pada archive.files.
+    final rebuiltArchive = Archive();
+    for (final file in archive.files) {
+      final normalizedXml = xmlByName[file.name];
+      if (normalizedXml != null) {
+        final content = utf8.encode(normalizedXml);
+        rebuiltArchive.addFile(ArchiveFile(file.name, content.length, content));
+      } else {
+        rebuiltArchive.addFile(file);
+      }
     }
 
-    final encoded = ZipEncoder().encode(archive);
+    final encoded = ZipEncoder().encode(rebuiltArchive);
     return encoded == null ? input : Uint8List.fromList(encoded);
   } catch (_) {
     // Jika normalisasi gagal, biarkan decoder menampilkan error sebenarnya.
@@ -148,10 +152,22 @@ Uint8List _withBasicExcelStyles(Uint8List input) {
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>''';
 
-  archive.files.remove(styleFile);
+  // Susun arsip baru dan ganti styles.xml tanpa mengubah daftar files asli.
+  final rebuiltArchive = Archive();
   final encodedStyles = utf8.encode(basicStyles);
-  archive.files.add(ArchiveFile('xl/styles.xml', encodedStyles.length, encodedStyles));
-  final output = ZipEncoder().encode(archive);
+  var stylesReplaced = false;
+  for (final file in archive.files) {
+    if (file.name.toLowerCase() == 'xl/styles.xml') {
+      rebuiltArchive.addFile(ArchiveFile(file.name, encodedStyles.length, encodedStyles));
+      stylesReplaced = true;
+    } else {
+      rebuiltArchive.addFile(file);
+    }
+  }
+  if (!stylesReplaced) {
+    throw const FormatException('Komponen xl/styles.xml tidak ditemukan.');
+  }
+  final output = ZipEncoder().encode(rebuiltArchive);
   if (output == null) {
     throw const FormatException('Gagal menyusun ulang arsip Excel.');
   }
