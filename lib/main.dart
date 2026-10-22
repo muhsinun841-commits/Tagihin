@@ -928,6 +928,63 @@ Widget _summaryCard(String title, String value, String caption, IconData icon, C
   ),
 );
 
+
+/// Kartu tagihan yang dapat diketuk dari Dashboard maupun halaman Jadwal.
+class LoanTile extends StatelessWidget {
+  final Loan loan;
+  const LoanTile({super.key, required this.loan});
+
+  @override
+  Widget build(BuildContext context) {
+    final member = getMember(loan.memberId);
+    final isOverdue = loan.remaining > 0 && loan.dueDate.isBefore(DateTime.now()) &&
+        !DateUtils.isSameDay(loan.dueDate, DateTime.now());
+    final isPaid = loan.remaining <= 0;
+    final color = isPaid ? green : (isOverdue ? Colors.redAccent : blue);
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+      child: ListTile(
+        onTap: () => showLoanDetail(context, loan),
+        leading: CircleAvatar(
+          backgroundColor: color.withValues(alpha: .10),
+          child: Icon(isPaid ? Icons.check_circle : Icons.receipt_long_rounded, color: color),
+        ),
+        title: Text(member?.name ?? 'Anggota tidak ditemukan',
+            style: const TextStyle(fontWeight: FontWeight.w800, color: navy)),
+        subtitle: Text('${loan.product} • Jatuh tempo ${tanggal(loan.dueDate)}\n'
+            'Tagihan ${rupiah(loan.amount)} • Sisa ${rupiah(loan.remaining)}'),
+        isThreeLine: true,
+        trailing: Icon(Icons.chevron_right_rounded, color: color),
+      ),
+    );
+  }
+}
+
+/// Kartu statistik sederhana untuk halaman Laporan.
+Widget statCard(String title, String value, IconData icon, Color color) {
+  return Card(
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: color, size: 25),
+          const SizedBox(height: 8),
+          Text(title, maxLines: 2, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, color: navy, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color)),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class SchedulePage extends StatefulWidget {
   const SchedulePage({super.key});
   @override
