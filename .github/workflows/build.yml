@@ -2,7 +2,9 @@ name: Build TAGIHIN APK
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+
   workflow_dispatch:
 
 permissions:
@@ -10,50 +12,192 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    name: Build Android APK
+    runs-on: ubuntu-22.04
+
     steps:
+      # ==========================================
+      # 1. CHECKOUT SOURCE CODE
+      # ==========================================
       - name: Checkout source
         uses: actions/checkout@v4
 
+      # ==========================================
+      # 2. SET UP JAVA
+      # ==========================================
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # ==========================================
+      # 3. SET UP FLUTTER
+      # ==========================================
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
+      # ==========================================
+      # 4. CHECK REQUIRED FILES
+      # ==========================================
       - name: Check required files
         shell: bash
         run: |
-          test -f pubspec.yaml || { echo 'ERROR: pubspec.yaml tidak ditemukan'; exit 1; }
-          test -f lib/main.dart || { echo 'ERROR: lib/main.dart tidak ditemukan. Simpan kode aplikasi di lib/main.dart'; exit 1; }
-          test -f assets/icon/tagihin.png || { echo 'ERROR: assets/icon/tagihin.png tidak ditemukan. Tambahkan gambar ikon PNG 512x512 ke lokasi ini.'; exit 1; }
+          set -e
 
+          echo "Memeriksa struktur proyek TAGIHIN..."
+
+          test -f pubspec.yaml || {
+            echo "ERROR: pubspec.yaml tidak ditemukan"
+            exit 1
+          }
+
+          test -f lib/main.dart || {
+            echo "ERROR: lib/main.dart tidak ditemukan"
+            exit 1
+          }
+
+          echo "File utama ditemukan."
+
+          echo "Struktur folder proyek:"
+          ls -la
+
+      # ==========================================
+      # 5. GENERATE ANDROID PROJECT FILES
+      # ==========================================
+      - name: Generate Android project files
+        shell: bash
+        run: |
+          set -e
+
+          echo "Memeriksa AndroidManifest.xml..."
+
+          if [ ! -f android/app/src/main/AndroidManifest.xml ]; then
+            echo "AndroidManifest.xml tidak ditemukan."
+            echo "Membuat struktur proyek Android..."
+
+            flutter create \
+              --platforms=android \
+              --project-name tagihin \
+              .
+          else
+            echo "AndroidManifest.xml sudah tersedia."
+          fi
+
+          echo "Memastikan file Android tersedia..."
+
+          test -f android/app/src/main/AndroidManifest.xml
+
+          echo "AndroidManifest.xml ditemukan."
+
+      # ==========================================
+      # 6. INSTALL DEPENDENCIES
+      # ==========================================
       - name: Install dependencies
         run: flutter pub get
 
+      # ==========================================
+      # 7. VERIFY SHAREDPREFERENCES VERSION
+      # ==========================================
       - name: Verify SharedPreferences Android version
         shell: bash
         run: |
-          flutter pub deps | grep shared_preferences_android
-          if grep -A 2 '^  shared_preferences_android:' pubspec.lock | grep -q 'version: "2.5.0"'; then
-            echo 'ERROR: shared_preferences_android 2.5.0 terpilih, versi ini perlu dihindari.'
+          set -e
+
+          flutter pub deps
+
+          echo "Memeriksa versi shared_preferences_android..."
+
+          VERSION=$(awk '
+            /^  shared_preferences_android / {
+              print $2
+              exit
+            }
+          ' pubspec.lock)
+
+          echo "Versi terpasang: ${VERSION:-tidak ditemukan}"
+
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: shared_preferences_android tidak ditemukan."
             exit 1
           fi
 
+          if [ "$VERSION" = "2.5.0" ]; then
+            echo "ERROR: Versi 2.5.0 masih digunakan."
+            echo "Periksa pubspec.yaml dan pubspec.lock."
+            exit 1
+          fi
+
+      # ==========================================
+      # 8. CHECK ICON
+      # ==========================================
+      - name: Check launcher icon
+        shell: bash
+        run: |
+          set -e
+
+          if [ ! -f assets/icon/tagihin.png ]; then
+            echo "ERROR: assets/icon/tagihin.png tidak ditemukan."
+            echo "Pastikan gambar ikon sudah ada di repository."
+            exit 1
+          fi
+
+          echo "Gambar ikon ditemukan."
+
+      # ==========================================
+      # 9. GENERATE LAUNCHER ICON
+      # ==========================================
       - name: Generate Android launcher icon
-        run: dart run flutter_launcher_icons
+        shell: bash
+        run: |
+          set -e
 
+          test -f android/app/src/main/AndroidManifest.xml
+
+          dart run flutter_launcher_icons
+
+          echo "Pembuatan ikon selesai."
+
+      # ==========================================
+      # 10. VERIFY PROJECT
+      # ==========================================
       - name: Analyze Flutter code
-        run: flutter analyze
+        run: flutter analyze --no-pub
 
+      # ==========================================
+      # 11. BUILD RELEASE APK
+      # ==========================================
       - name: Build release APK
         run: flutter build apk --release
 
+      # ==========================================
+      # 12. CHECK APK
+      # ==========================================
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -e
+
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: APK tidak ditemukan."
+            exit 1
+          fi
+
+          echo "APK berhasil dibuat."
+          ls -lh "$APK"
+
+      # ==========================================
+      # 13. UPLOAD APK
+      # ==========================================
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: tagihin-apk-release
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
