@@ -642,10 +642,10 @@ class _MainPageState extends State<MainPage> {
   int index=0;
   final titles=['Beranda','Jadwal','Anggota','Penagihan','Laporan'];
   @override Widget build(BuildContext context) {
-    final pages=[HomePage(onImport:importFile), const SchedulePage(), const MembersPage(), const CollectionPage(), const ReportPage()];
+    final pages=[HomePage(onImport:importFile, onNavigate:(page){if(mounted)setState(()=>index=page);}), const SchedulePage(), const MembersPage(), const CollectionPage(), const ReportPage()];
     return Scaffold(appBar:AppBar(title:Row(children:[Container(width:38,height:38,decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(12)),child:const Icon(Icons.fact_check_rounded,color:Colors.white)),const SizedBox(width:10),Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('TAGIHIN',style:TextStyle(fontWeight:FontWeight.w900,letterSpacing:1.1)),Text(titles[index],style:TextStyle(fontSize:12,color:Colors.blueGrey.shade600))])]),
       actions:[IconButton(tooltip:'Pengaturan',onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const SettingsPage())),icon:const Icon(Icons.settings_outlined))]),
-      body:IndexedStack(index:index,children:pages),
+      body: pages[index],
       bottomNavigationBar:NavigationBar(selectedIndex:index,onDestinationSelected:(v)=>setState(()=>index=v),backgroundColor:Colors.white,indicatorColor:blue.withValues(alpha:.12),
         destinations:const [NavigationDestination(icon:Icon(Icons.home_outlined),selectedIcon:Icon(Icons.home),label:'Beranda'),NavigationDestination(icon:Icon(Icons.calendar_month_outlined),selectedIcon:Icon(Icons.calendar_month),label:'Jadwal'),NavigationDestination(icon:Icon(Icons.groups_outlined),selectedIcon:Icon(Icons.groups),label:'Anggota'),NavigationDestination(icon:Icon(Icons.payments_outlined),selectedIcon:Icon(Icons.payments),label:'Penagihan'),NavigationDestination(icon:Icon(Icons.assessment_outlined),selectedIcon:Icon(Icons.assessment),label:'Laporan')]));
   }
@@ -702,7 +702,8 @@ double get todayPaid=>store.logs.where((l)=>DateUtils.isSameDay(l.createdAt,Date
 
 class HomePage extends StatelessWidget {
   final VoidCallback onImport;
-  const HomePage({super.key, required this.onImport});
+  final ValueChanged<int> onNavigate;
+  const HomePage({super.key, required this.onImport, required this.onNavigate});
 
   @override
   Widget build(BuildContext context) {
@@ -812,7 +813,7 @@ class HomePage extends StatelessWidget {
             const Icon(Icons.bar_chart_rounded, color: blue, size: 29),
             const SizedBox(width: 9),
             const Expanded(child: Text('Ringkasan tagihan', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: navy))),
-            TextButton(onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SchedulePage())), child: const Text('Lihat jadwal')),
+            TextButton(onPressed: () => onNavigate(1), child: const Text('Lihat jadwal')),
           ]),
         ),
         Padding(
@@ -825,10 +826,10 @@ class HomePage extends StatelessWidget {
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
             children: [
-              _summaryCard('Anggota', '${store.members.length}', 'Total anggota aktif', Icons.groups_rounded, const Color(0xFF159BFA), const Color(0xFFEAF6FF)),
-              _summaryCard('Tagihan aktif', '${openLoans.length}', 'Total tagihan belum lunas', Icons.receipt_long_rounded, const Color(0xFF7956F5), const Color(0xFFF2EEFF)),
-              _summaryCard('Total tunggakan', rupiah(overdueTotal), 'Tagihan yang terlambat', Icons.warning_amber_rounded, const Color(0xFFFF812B), const Color(0xFFFFF3E8)),
-              _summaryCard('Sudah dibayar hari ini', rupiah(todayPaid), 'Total pembayaran hari ini', Icons.check_circle_rounded, const Color(0xFF0DBB83), const Color(0xFFE8FBF4)),
+              _summaryCard('Anggota', '${store.members.length}', 'Total anggota aktif', Icons.groups_rounded, const Color(0xFF159BFA), const Color(0xFFEAF6FF), onTap: () => onNavigate(2)),
+              _summaryCard('Tagihan aktif', '${openLoans.length}', 'Total tagihan belum lunas', Icons.receipt_long_rounded, const Color(0xFF7956F5), const Color(0xFFF2EEFF), onTap: () => onNavigate(1)),
+              _summaryCard('Total tunggakan', rupiah(overdueTotal), 'Tagihan yang terlambat', Icons.warning_amber_rounded, const Color(0xFFFF812B), const Color(0xFFFFF3E8), onTap: () => onNavigate(1)),
+              _summaryCard('Sudah dibayar hari ini', rupiah(todayPaid), 'Total pembayaran hari ini', Icons.check_circle_rounded, const Color(0xFF0DBB83), const Color(0xFFE8FBF4), onTap: () => onNavigate(4)),
             ],
           ),
         ),
@@ -840,7 +841,7 @@ class HomePage extends StatelessWidget {
             const SizedBox(width: 9),
             const Expanded(child: Text('Prioritas penagihan', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: navy))),
             TextButton.icon(
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SchedulePage())),
+              onPressed: () => onNavigate(1),
               icon: const Icon(Icons.chevron_right_rounded), label: const Text('Lihat jadwal'),
             ),
           ]),
@@ -901,30 +902,31 @@ Widget _actionCard({required String title, required String subtitle, required Ic
   );
 }
 
-Widget _summaryCard(String title, String value, String caption, IconData icon, Color accent, Color tint) => Container(
-  padding: const EdgeInsets.all(14),
-  decoration: BoxDecoration(color: tint, borderRadius: BorderRadius.circular(22), border: Border.all(color: accent.withValues(alpha: .20))),
-  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    Row(children: [
-      Container(width: 46, height: 46, decoration: BoxDecoration(color: accent, shape: BoxShape.circle), child: Icon(icon, color: Colors.white, size: 25)),
-      const Spacer(),
-      Icon(Icons.chevron_right_rounded, color: accent, size: 23),
-    ]),
-    const SizedBox(height: 10),
-    Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: navy)),
-    const SizedBox(height: 3),
-    FittedBox(alignment: Alignment.centerLeft, fit: BoxFit.scaleDown, child: Text(value, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: navy))),
-    const SizedBox(height: 3),
-    Text(caption, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10, color: accent)),
-  ]),
+Widget _summaryCard(String title, String value, String caption, IconData icon, Color accent, Color tint, {required VoidCallback onTap}) => Material(
+  color: tint,
+  borderRadius: BorderRadius.circular(22),
+  child: InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(22),
+    child: Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(borderRadius: BorderRadius.circular(22), border: Border.all(color: accent.withValues(alpha: .20))),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Container(width: 46, height: 46, decoration: BoxDecoration(color: accent, shape: BoxShape.circle), child: Icon(icon, color: Colors.white, size: 25)),
+          const Spacer(),
+          Icon(Icons.chevron_right_rounded, color: accent, size: 23),
+        ]),
+        const SizedBox(height: 10),
+        Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: navy)),
+        const SizedBox(height: 3),
+        FittedBox(alignment: Alignment.centerLeft, fit: BoxFit.scaleDown, child: Text(value, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: navy))),
+        const SizedBox(height: 3),
+        Text(caption, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10, color: accent)),
+      ]),
+    ),
+  ),
 );
-
-Widget statCard(String title,String value,IconData icon,Color color)=>Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(18)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Icon(icon,color:color),Text(title,style:TextStyle(color:Colors.blueGrey.shade600,fontSize:12)),FittedBox(fit:BoxFit.scaleDown,alignment:Alignment.centerLeft,child:Text(value,style:const TextStyle(fontWeight:FontWeight.w800,color:navy,fontSize:16)))]));
-class LoanTile extends StatelessWidget {
-  final Loan loan; const LoanTile({super.key,required this.loan});
-  @override Widget build(BuildContext context){final m=getMember(loan.memberId);final late=loan.dueDate.isBefore(DateTime.now())&&!DateUtils.isSameDay(loan.dueDate,DateTime.now());
-    return Card(margin:const EdgeInsets.symmetric(horizontal:16,vertical:5),child:ListTile(onTap:()=>showLoanDetail(context,loan),leading:CircleAvatar(backgroundColor:late?orange.withValues(alpha:.15):blue.withValues(alpha:.1),child:Icon(late?Icons.warning_amber:Icons.person_outline,color:late?orange:blue)),title:Text(m?.name??'Anggota',style:const TextStyle(fontWeight:FontWeight.w700)),subtitle:Text('${loan.product} • Jatuh tempo ${tanggal(loan.dueDate)}\\nSisa ${rupiah(loan.remaining)}'),isThreeLine:true,trailing:const Icon(Icons.chevron_right)));}
-}
 
 class SchedulePage extends StatefulWidget {
   const SchedulePage({super.key});
@@ -933,7 +935,8 @@ class SchedulePage extends StatefulWidget {
 }
 
 class _SchedulePageState extends State<SchedulePage> {
-  int filter = 0;
+  // Tampilkan semua tagihan aktif dulu agar halaman Jadwal tidak tampak kosong.
+  int filter = 3;
 
   @override
   Widget build(BuildContext context) {
@@ -990,7 +993,7 @@ class _MembersPageState extends State<MembersPage>{
  @override Widget build(BuildContext context){
    final list=store.members.where((m)=>('${m.name} ${m.address} ${m.phone}').toLowerCase().contains(query.toLowerCase())).toList()..sort((a,b)=>a.name.compareTo(b.name));
    return Column(children:[Padding(padding:const EdgeInsets.all(16),child:TextField(onChanged:(v)=>setState(()=>query=v),decoration:const InputDecoration(prefixIcon:Icon(Icons.search),hintText:'Cari nama, alamat, atau nomor HP'))),
-     Expanded(child:list.isEmpty?emptyState('Data anggota belum tersedia.\\nGunakan Import Excel di Beranda.'):ListView.builder(itemCount:list.length,itemBuilder:(c,i){final m=list[i];final loans=store.loans.where((l)=>l.memberId==m.id&&l.remaining>0).toList();return Card(margin:const EdgeInsets.symmetric(horizontal:16,vertical:5),child:ListTile(leading:const CircleAvatar(backgroundColor:Color(0xFFE8F0FC),child:Icon(Icons.person,color:blue)),title:Text(m.name,style:const TextStyle(fontWeight:FontWeight.w700)),subtitle:Text('${m.address}\\n${m.phone} • ${loans.length} tagihan aktif'),isThreeLine:true,trailing:const Icon(Icons.chevron_right),onTap:()=>showMemberDetail(context,m)));}))]);
+     Expanded(child:list.isEmpty?emptyState('Data anggota belum tersedia.\\nGunakan Import Excel di Beranda.'):ListView.builder(itemCount:list.length,itemBuilder:(c,i){final m=list[i];final loans=store.loans.where((l)=>l.memberId==m.id&&l.remaining>0).toList();return Card(margin:const EdgeInsets.symmetric(horizontal:16,vertical:5),child:ListTile(leading:const CircleAvatar(backgroundColor:Color(0xFFE8F0FC),child:Icon(Icons.person,color:blue)),title:Text(m.name,style:const TextStyle(fontWeight:FontWeight.w700)),subtitle:Text('${m.address}\\n${m.phone} • ${loans.length} tagihan aktif'),isThreeLine:true,trailing:const Icon(Icons.chevron_right),onTap:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>MemberDetailPage(member:m)))));}))]);
  }
 }
 
@@ -1058,6 +1061,102 @@ class _SettingsPageState extends State<SettingsPage>{
    const SizedBox(height:10),const Text('Peringatan: penyimpanan lokal berarti data tidak otomatis tersinkron antar-HP. File Excel impor sebaiknya memiliki ID anggota dan ID pembiayaan yang stabil.',style:TextStyle(color:Colors.deepOrange,fontSize:12))
  ]));
 }
+
+class MemberDetailPage extends StatelessWidget {
+  final Member member;
+  const MemberDetailPage({super.key, required this.member});
+
+  @override
+  Widget build(BuildContext context) {
+    final loans = store.loans.where((l) => l.memberId == member.id).toList()
+      ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+    final active = loans.where((l) => l.remaining > 0).toList();
+    final totalRemaining = active.fold<double>(0, (sum, l) => sum + l.remaining);
+    final totalPaid = loans.fold<double>(0, (sum, l) => sum + l.paid);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Detail Anggota')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFFD9E8FC)),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                const CircleAvatar(radius: 26, child: Icon(Icons.person, size: 28)),
+                const SizedBox(width: 12),
+                Expanded(child: Text(member.name, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: navy))),
+              ]),
+              const SizedBox(height: 14),
+              _detailLine(Icons.location_on_outlined, member.address.isEmpty ? 'Alamat belum tersedia' : member.address),
+              const SizedBox(height: 8),
+              _detailLine(Icons.phone_outlined, member.phone.isEmpty ? 'Nomor telepon belum tersedia' : member.phone),
+              const SizedBox(height: 16),
+              Row(children: [
+                Expanded(child: _memberMoneyBox('Total sisa tagihan', rupiah(totalRemaining), orange)),
+                const SizedBox(width: 10),
+                Expanded(child: _memberMoneyBox('Total sudah dibayar', rupiah(totalPaid), green)),
+              ]),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => sendWhatsApp(context, member, active),
+                  icon: const Icon(Icons.chat_rounded),
+                  label: const Text('Kirim pengingat lewat WhatsApp'),
+                  style: FilledButton.styleFrom(backgroundColor: green, padding: const EdgeInsets.all(14)),
+                ),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 18),
+          Text('Daftar tagihan (${active.length} aktif)', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: navy)),
+          const SizedBox(height: 8),
+          if (loans.isEmpty)
+            emptyState('Belum ada data tagihan untuk anggota ini.')
+          else
+            ...loans.map((loan) => Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                onTap: () => showLoanDetail(context, loan),
+                leading: Icon(loan.remaining > 0 ? Icons.receipt_long : Icons.check_circle, color: loan.remaining > 0 ? blue : green),
+                title: Text(loan.product, style: const TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: Text('Jatuh tempo: ${tanggal(loan.dueDate)}\\nTagihan: ${rupiah(loan.amount)} • Dibayar: ${rupiah(loan.paid)}'),
+                isThreeLine: true,
+                trailing: SizedBox(
+                  width: 100,
+                  child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                    const Text('Sisa', style: TextStyle(fontSize: 11)),
+                    FittedBox(child: Text(rupiah(loan.remaining), style: TextStyle(fontWeight: FontWeight.w900, color: loan.remaining > 0 ? orange : green))),
+                  ]),
+                ),
+              ),
+            )),
+        ],
+      ),
+    );
+  }
+}
+
+Widget _detailLine(IconData icon, String text) => Row(
+  crossAxisAlignment: CrossAxisAlignment.start,
+  children: [Icon(icon, size: 19, color: blue), const SizedBox(width: 8), Expanded(child: Text(text))],
+);
+
+Widget _memberMoneyBox(String label, String value, Color color) => Container(
+  padding: const EdgeInsets.all(12),
+  decoration: BoxDecoration(color: color.withValues(alpha: .08), borderRadius: BorderRadius.circular(14)),
+  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Text(label, style: TextStyle(fontSize: 11, color: color)),
+    const SizedBox(height: 5),
+    Text(value, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: color)),
+  ]),
+);
 
 Future<void> showMemberDetail(BuildContext context,Member m) async {
  final loans=store.loans.where((l)=>l.memberId==m.id).toList();
