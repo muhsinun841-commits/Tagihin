@@ -2,118 +2,58 @@ name: Build TAGIHIN APK
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: tagihin-build-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build:
-    name: Analyze and Build Android APK
     runs-on: ubuntu-latest
     timeout-minutes: 45
-
     steps:
-      - name: Checkout source code
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Setup Flutter stable
+      - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      - name: Show tool versions
+      - name: Check required files
+        shell: bash
         run: |
-          flutter --version
-          dart --version
+          test -f pubspec.yaml || { echo 'ERROR: pubspec.yaml tidak ditemukan'; exit 1; }
+          test -f lib/main.dart || { echo 'ERROR: lib/main.dart tidak ditemukan. Simpan kode aplikasi di lib/main.dart'; exit 1; }
+          test -f assets/icon/tagihin.png || { echo 'ERROR: assets/icon/tagihin.png tidak ditemukan. Tambahkan gambar ikon PNG 512x512 ke lokasi ini.'; exit 1; }
 
-      - name: Verify project files
-        run: |
-          test -f pubspec.yaml || { echo 'ERROR: pubspec.yaml tidak ditemukan di root repository.'; exit 1; }
-          test -f lib/main.dart || { echo 'ERROR: lib/main.dart tidak ditemukan.'; exit 1; }
-          echo 'Jumlah baris lib/main.dart:'
-          wc -l lib/main.dart
-          echo 'Pemeriksaan iMarketing (jika muncul, tampilkan barisnya):'
-          grep -n 'iMarketing' lib/main.dart || true
-
-      - name: Ensure Android platform exists
-        run: |
-          if [ ! -d android ]; then
-            flutter create . --platforms=android --org com.tagihin.app
-          fi
-
-      - name: Set Android app label and icon reference
-        run: |
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          if [ ! -f "$MANIFEST" ]; then
-            echo 'ERROR: AndroidManifest.xml tidak ditemukan.'
-            exit 1
-          fi
-          sed -i 's/android:label="[^"]*"/android:label="TAGIHIN"/' "$MANIFEST"
-          # Pastikan manifest menggunakan resource launcher icon yang dihasilkan.
-          if grep -q 'android:icon=' "$MANIFEST"; then
-            sed -i 's#android:icon="[^"]*"#android:icon="@mipmap/ic_launcher"#' "$MANIFEST"
-          else
-            sed -i 's#<application#<application android:icon="@mipmap/ic_launcher"#' "$MANIFEST"
-          fi
-          grep -n 'application\|android:icon\|android:label' "$MANIFEST"
-
-      - name: Clean previous Flutter build
-        run: flutter clean
-
-      - name: Get dependencies
+      - name: Install dependencies
         run: flutter pub get
 
-      - name: Generate Android launcher icon
+      - name: Verify SharedPreferences Android version
+        shell: bash
         run: |
-          if [ ! -f assets/icon/tagihin.png ]; then
-            echo 'ERROR: assets/icon/tagihin.png tidak ditemukan. Tambahkan file ikon TAGIHIN sesuai pubspec.yaml.'
+          flutter pub deps | grep shared_preferences_android
+          if grep -A 2 '^  shared_preferences_android:' pubspec.lock | grep -q 'version: "2.5.0"'; then
+            echo 'ERROR: shared_preferences_android 2.5.0 terpilih, versi ini perlu dihindari.'
             exit 1
           fi
-          dart run flutter_launcher_icons
-          echo 'Launcher icon resources generated:'
-          find android/app/src/main/res -type f -name 'ic_launcher*' -print
-          test -n "$(find android/app/src/main/res -type f -name 'ic_launcher*' -print -quit)" || {
-            echo 'ERROR: resource ic_launcher tidak dihasilkan.'
-            exit 1
-          }
 
-      - name: Analyze Dart source
-        run: |
-          set -o pipefail
-          flutter analyze --no-fatal-infos --no-fatal-warnings lib/main.dart 2>&1 | tee analyze.log
+      - name: Generate Android launcher icon
+        run: dart run flutter_launcher_icons
+
+      - name: Analyze Flutter code
+        run: flutter analyze
 
       - name: Build release APK
-        run: |
-          set -o pipefail
-          flutter build apk --release 2>&1 | tee build-apk.log
+        run: flutter build apk --release
 
-      - name: Verify APK
-        if: success()
-        run: |
-          APK='build/app/outputs/flutter-apk/app-release.apk'
-          test -s "$APK" || { echo 'ERROR: APK tidak ditemukan atau kosong.'; exit 1; }
-          ls -lh "$APK"
-          sha256sum "$APK"
-
-      - name: Upload TAGIHIN APK
-        if: success()
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: TAGIHIN-release-apk
+          name: tagihin-apk-release
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 14
